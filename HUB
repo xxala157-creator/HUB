@@ -1,4 +1,4 @@
---// ขอโทษ HUB v3.0
+--// ขอโทษ HUB v3.1
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -8,6 +8,9 @@ local StarterGui = game:GetService("StarterGui")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
+local Stats = game:GetService("Stats")
+local MarketplaceService = game:GetService("MarketplaceService")
+local LocalizationService = game:GetService("LocalizationService")
 local LP = Players.LocalPlayer
 
 local ICON_ID = ""
@@ -157,7 +160,7 @@ stroke(fovCircle, C.accent, 1.5)
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(460, 280),
+	Size = UDim2.fromOffset(520, 330),
 	BackgroundColor3 = C.bg,
 	BorderSizePixel = 0
 }, gui)
@@ -174,7 +177,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -70, 1, 0),
 	Position = UDim2.fromOffset(12, 0),
 	BackgroundTransparency = 1,
-	Text = "ขอโทษ HUB | v3.0",
+	Text = "ขอโทษ HUB | v3.1",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 16,
@@ -948,22 +951,20 @@ local function setInvisible(v)
 	if not c then return end
 
 	if v then
-
 		for _, obj in ipairs(c:GetDescendants()) do
-
 			if obj:IsA("BasePart")
 				or obj:IsA("Decal")
 				or obj:IsA("Texture") then
 
-				savedTransparency[obj] = obj.Transparency
+				if savedTransparency[obj] == nil then
+					savedTransparency[obj] = obj.Transparency
+				end
+
 				obj.Transparency = 1
 			end
 		end
-
 	else
-
 		for obj, tr in pairs(savedTransparency) do
-
 			if obj and obj.Parent then
 				obj.Transparency = tr
 			end
@@ -988,7 +989,6 @@ local function setPickupOnce(v)
 
 	pickupConn = track(
 		Workspace.DescendantAdded:Connect(function(obj)
-
 			if obj:IsA("ProximityPrompt") then
 				obj.HoldDuration = 0
 			end
@@ -1010,34 +1010,24 @@ local function clickTeleport(pos)
 	local cam = Workspace.CurrentCamera
 	if not cam then return end
 
-	local ray =
-		cam:ViewportPointToRay(
-			pos.X,
-			pos.Y
-		)
+	local ray = cam:ViewportPointToRay(pos.X, pos.Y)
 
 	local params = RaycastParams.new()
-
-	params.FilterType =
-		Enum.RaycastFilterType.Exclude
-
+	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {
 		LP.Character
 	}
 
-	local hit =
-		Workspace:Raycast(
-			ray.Origin,
-			ray.Direction * 1000,
-			params
-		)
+	local hit = Workspace:Raycast(
+		ray.Origin,
+		ray.Direction * 1000,
+		params
+	)
 
 	if hit then
-		root.CFrame =
-			CFrame.new(
-				hit.Position +
-				Vector3.new(0, 3, 0)
-			)
+		root.CFrame = CFrame.new(
+			hit.Position + Vector3.new(0, 3, 0)
+		)
 	end
 end
 
@@ -1052,24 +1042,18 @@ local function setClickTeleport(v)
 	end
 
 	if v then
-
 		clickTpConn = track(
-			UIS.InputBegan:Connect(
-				function(i, processed)
-
-					if processed then
-						return
-					end
-
-					if i.UserInputType ==
-						Enum.UserInputType.MouseButton1
-						or i.UserInputType ==
-						Enum.UserInputType.Touch then
-
-						clickTeleport(i.Position)
-					end
+			UIS.InputBegan:Connect(function(i, processed)
+				if processed then
+					return
 				end
-			)
+
+				if i.UserInputType == Enum.UserInputType.MouseButton1
+					or i.UserInputType == Enum.UserInputType.Touch then
+
+					clickTeleport(i.Position)
+				end
+			end)
 		)
 	end
 end
@@ -1087,7 +1071,6 @@ local function refreshPlayerList()
 	end
 
 	for _, p in ipairs(Players:GetPlayers()) do
-
 		if p ~= LP then
 
 			local b = new("TextButton", {
@@ -1118,20 +1101,18 @@ local function refreshPlayerList()
 	end
 end
 
-Players.PlayerAdded:Connect(refreshPlayerList)
+track(Players.PlayerAdded:Connect(refreshPlayerList))
 
-Players.PlayerRemoving:Connect(function(p)
-
+track(Players.PlayerRemoving:Connect(function(p)
 	if selectedPlr == p then
 		selectedPlr = nil
 	end
 
 	task.defer(refreshPlayerList)
-end)
+end))
 
 -- Warp selected
 local function warpToSelected()
-
 	if not (
 		selectedPlr
 		and selectedPlr.Character
@@ -1156,7 +1137,6 @@ end
 
 -- ชนคนกระเด็น
 local function flingSelected()
-
 	if not (
 		selectedPlr
 		and selectedPlr.Character
@@ -1197,16 +1177,16 @@ local function flingSelected()
 
 	bv:Destroy()
 
-	root.CFrame = original
+	if root and root.Parent then
+		root.CFrame = original
+	end
 end
 
 -- Anti Lag
 local function antiLag()
-
 	notify("กำลังลดแลค...")
 
 	task.spawn(function()
-
 		pcall(function()
 			settings().Rendering.QualityLevel =
 				Enum.QualityLevel.Level01
@@ -1215,14 +1195,12 @@ local function antiLag()
 		Lighting.GlobalShadows = false
 
 		for _, e in ipairs(Lighting:GetChildren()) do
-
 			if e:IsA("PostEffect") then
 				e.Enabled = false
 			end
 		end
 
 		for _, d in ipairs(workspace:GetDescendants()) do
-
 			if d:IsA("ParticleEmitter")
 				or d:IsA("Trail") then
 
@@ -1241,11 +1219,9 @@ end
 
 -- Server Hop
 local function serverHop()
-
 	notify("กำลังหาเซิร์ฟเวอร์...")
 
 	local ok, res = pcall(function()
-
 		return game:HttpGet(
 			("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):
 			format(game.PlaceId)
@@ -1263,7 +1239,6 @@ local function serverHop()
 		end)
 
 	if ok2 and data.data then
-
 		for _, s in ipairs(data.data) do
 
 			if s.id ~= game.JobId
@@ -1284,9 +1259,117 @@ local function serverHop()
 	notify("ไม่พบเซิร์ฟเวอร์")
 end
 
+-- Status system
+local statusLabels = {}
+local fpsValue = 0
+
+local function getCountry()
+	local ok, country = pcall(function()
+		return LocalizationService:
+			GetCountryRegionForPlayerAsync(LP)
+	end)
+
+	if ok and country then
+		return country
+	end
+
+	return "Unknown"
+end
+
+local function getCreator()
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(
+			game.PlaceId,
+			Enum.InfoType.Asset
+		)
+	end)
+
+	if ok and info and info.Creator then
+		return info.Creator.Name or "Unknown"
+	end
+
+	local ok2, info2 = pcall(function()
+		return MarketplaceService:GetProductInfo(game.PlaceId)
+	end)
+
+	if ok2 and info2 and info2.Creator then
+		return info2.Creator.Name or "Unknown"
+	end
+
+	return "Unknown"
+end
+
+local function getPing()
+	local ok, value = pcall(function()
+		return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+	end)
+
+	if ok and value then
+		return math.floor(value + 0.5) .. " ms"
+	end
+
+	return "-- ms"
+end
+
+local function getStatusText()
+	return {
+		FE = "Enabled",
+		JobID = game.JobId ~= "" and game.JobId or "Studio",
+		PlaceID = tostring(game.PlaceId),
+		Country = getCountry(),
+		UserID = tostring(LP.UserId),
+		MapName = Workspace.Name,
+		GameName = game.Name,
+		Creator = getCreator(),
+		FPS = tostring(math.floor(fpsValue + 0.5)),
+		Ping = getPing()
+	}
+end
+
+local function statusRow(parent, title, key)
+	local row = new("Frame", {
+		Size = UDim2.new(1, -10, 0, 38),
+		BackgroundColor3 = C.row
+	}, parent)
+
+	corner(row, 7)
+
+	new("TextLabel", {
+		Size = UDim2.new(0.38, 0, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+		BackgroundTransparency = 1,
+		Text = title,
+		TextColor3 = Color3.fromRGB(150, 165, 205),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, row)
+
+	local value = new("TextLabel", {
+		Size = UDim2.new(0.57, -5, 1, 0),
+		Position = UDim2.new(0.38, 0, 0, 0),
+		BackgroundTransparency = 1,
+		Text = "--",
+		TextColor3 = C.text,
+		Font = FONT,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd
+	}, row)
+
+	statusLabels[key] = value
+end
+
+local statusUpdater
+
 -- Heartbeat
 track(
 	RunService.Heartbeat:Connect(function(dt)
+
+		if dt > 0 then
+			fpsValue =
+				1 / dt
+		end
 
 		local _, hum, root = getChar()
 
@@ -1467,15 +1550,10 @@ Toggle(
 	pVis,
 	"มองเห็นผู้เล่น",
 	function(v)
-
 		S.espP = v
 
 		if not v then
-
-			for _, p in ipairs(
-				Players:GetPlayers()
-			) do
-
+			for _, p in ipairs(Players:GetPlayers()) do
 				if p.Character then
 					clearESP(p.Character)
 				end
@@ -1488,11 +1566,9 @@ Toggle(
 	pVis,
 	"มองเห็น NPC",
 	function(v)
-
 		S.espN = v
 
 		if not v then
-
 			for m in pairs(npcs) do
 				clearESP(m)
 			end
@@ -1522,7 +1598,7 @@ Toggle(
 	"ล็อคหัว NPC / บอท",
 	function(v)
 		S.lockN = v
-		updateFovVisible()
+	updateFovVisible()
 	end
 )
 
@@ -1701,6 +1777,76 @@ Button(
 	serverHop
 )
 
+-- STATUS
+local pStatus = Page("สถานะ")
+
+local statusHeader = new("Frame", {
+	Size = UDim2.new(1, -10, 0, 68),
+	BackgroundColor3 = C.row
+}, pStatus)
+
+corner(statusHeader, 8)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 26),
+	Position = UDim2.fromOffset(12, 7),
+	BackgroundTransparency = 1,
+	Text = "SERVER DASHBOARD",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 17,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, statusHeader)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 20),
+	Position = UDim2.fromOffset(12, 36),
+	BackgroundTransparency = 1,
+	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB v3.1",
+	TextColor3 = Color3.fromRGB(145, 160, 200),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, statusHeader)
+
+Label(pStatus, "SERVER")
+
+statusRow(pStatus, "FE", "FE")
+statusRow(pStatus, "Job ID", "JobID")
+statusRow(pStatus, "Place ID", "PlaceID")
+statusRow(pStatus, "Country", "Country")
+statusRow(pStatus, "Map Name", "MapName")
+statusRow(pStatus, "Game", "GameName")
+statusRow(pStatus, "Creator", "Creator")
+
+Label(pStatus, "PLAYER")
+
+statusRow(pStatus, "User ID", "UserID")
+statusRow(pStatus, "FPS", "FPS")
+statusRow(pStatus, "Ping", "Ping")
+
+local function updateStatus()
+	if not pStatus or not pStatus.Parent then
+		return
+	end
+
+	local data = getStatusText()
+
+	for key, label in pairs(statusLabels) do
+		if label and label.Parent then
+			label.Text = tostring(data[key] or "--")
+		end
+	end
+end
+
+statusUpdater = task.spawn(function()
+	while gui.Parent do
+		updateStatus()
+		task.wait(1)
+	end
+end)
+
+-- Initial tab
 selectTab("หลัก")
 
 -- Cleanup
@@ -1742,5 +1888,5 @@ env.__KTHubCleanup = cleanup
 closeBtn.MouseButton1Click:Connect(cleanup)
 
 notify(
-	"ขอโทษ HUB v3.0 โหลดเสร็จเรียบร้อย!"
+	"ขอโทษ HUB v3.1 โหลดเสร็จเรียบร้อย!"
 )
