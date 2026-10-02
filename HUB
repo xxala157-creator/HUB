@@ -12,7 +12,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local env = (getgenv hitSize getgenv()) or _G
+local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
 
 local conns = {}
