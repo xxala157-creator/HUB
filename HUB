@@ -1,4 +1,4 @@
---// ขอโทษ HUB v2.0 (Merged & Optimized for Mobile / Delta)
+--// ขอโทษ HUB v3.0 (Merged & Optimized for Mobile / Delta)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -10,7 +10,7 @@ local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
 local LP = Players.LocalPlayer
 
--- ใส่ Asset ID รูปภาพปุ่มเปิด/ปิดได้ที่นี่ (ถ้าเว้นว่างไว้จะเป็นปุ่มข้อความ "ขอโทษ")
+-- ใส่ Asset ID รูปภาพปุ่มเปิด/ปิดได้ที่นี่
 local ICON_ID = ""
 
 -- Cleanup สคริปต์เก่าก่อนรันใหม่
@@ -24,6 +24,10 @@ local S = {
 	speed = false, speedVal = 50,
 	fly = false, flyVal = 60,
 	ijump = false,
+	noclip = false,
+	invis = false,
+	instantProximity = false,
+	clickTp = false,
 	espP = false, espN = false,
 	lockP = false, lockN = false, teamCheck = true, fov = 150,
 	hitbox = false, hitSize = 10,
@@ -103,7 +107,7 @@ stroke(main, C.accent, 2)
 local header = new("Frame", {Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1}, main)
 new("TextLabel", {
 	Size = UDim2.new(1, -70, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1,
-	Text = "ขอโทษ HUB | v2.0", TextColor3 = C.text, Font = FONT, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "ขอโทษ HUB | v3.0", TextColor3 = C.text, Font = FONT, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left,
 }, header)
 makeDraggable(header, main)
 
@@ -346,6 +350,104 @@ track(UIS.JumpRequest:Connect(function()
 	end
 end))
 
+-- Noclip (ทะลุกำแพง)
+track(RunService.Stepped:Connect(function()
+	if S.noclip then
+		local char = LP.Character
+		if char then
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.CanCollide = false
+				end
+			end
+		end
+	end
+end))
+
+-- Invisibility (ล่องหน)
+local function setInvis(v)
+	S.invis = v
+	local char = LP.Character
+	if char then
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if v then
+			if root then
+				local clone = root:Clone()
+				clone.Parent = char
+				root.Transparency = 1
+			end
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") or p:IsA("Decal") then
+					p.Transparency = 1
+				end
+			end
+		else
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+					p.Transparency = 0
+				elseif p:IsA("Decal") then
+					p.Transparency = 0
+				end
+			end
+		end
+	end
+end
+
+-- Instant ProximityPrompt (หยิบของกดครั้งเดียว)
+track(ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+	if S.instantProximity then
+		fireproximityprompt(prompt)
+	end
+end))
+
+-- Fling Player (ชนคนกระเด็น)
+local function flingTarget(targetPlr)
+	if not targetPlr or not targetPlr.Character then notify("ไม่พบผู้เล่นเป้าหมาย") return end
+	local targetRoot = targetPlr.Character:FindFirstChild("HumanoidRootPart")
+	local _, hum, root = getChar()
+	if not (targetRoot and root and hum) then notify("ไม่สามารถกระเด็นเป้าหมายได้") return end
+
+	local oldPos = root.CFrame
+	notify("กำลังชน: " .. targetPlr.DisplayName)
+
+	local bv = Instance.new("BodyAngularVelocity")
+	bv.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+	bv.AngularVelocity = Vector3.new(0, 99999, 0)
+	bv.Parent = root
+
+	local t = 0
+	while t < 1.5 and targetRoot and targetRoot.Parent do
+		root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0)
+		task.wait(0.05)
+		t = t + 0.05
+	end
+
+	bv:Destroy()
+	root.CFrame = oldPos
+	notify("ส่งตัวกลับตำแหน่งเดิมเรียบร้อย")
+end
+
+-- Click Teleport (กดวาร์ปบนหน้าจอ)
+track(UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if S.clickTp and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+		local cam = Workspace.CurrentCamera
+		local unitRay = cam:ViewportPointToRay(input.Position.X, input.Position.Y)
+		local raycastParams = RaycastParams.new()
+		if LP.Character then
+			raycastParams.FilterDescendantsInstances = {LP.Character}
+			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		end
+		local res = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000, raycastParams)
+		if res then
+			local _, _, root = getChar()
+			if root then
+				root.CFrame = CFrame.new(res.Position + Vector3.new(0, 3, 0))
+			end
+		end
+	end
+end))
+
 -- 2) ESP System
 local function clearESP(m)
 	local hl = m:FindFirstChild("_HubHL")
@@ -475,7 +577,7 @@ Players.PlayerAdded:Connect(refreshPlayerList)
 Players.PlayerRemoving:Connect(function(p) if selectedPlr == p then selectedPlr = nil end task.defer(refreshPlayerList) end)
 
 local function warpToSelected()
-	if not (selectedPlr and selectedPlr.Character) then notify("ยังไม่ได้เลือกผู้เล่น") return end
+if not (selectedPlr and selectedPlr.Character) then notify("ยังไม่ได้เลือกผู้เล่น") return end
 	local tr = selectedPlr.Character:FindFirstChild("HumanoidRootPart")
 	local _, _, root = getChar()
 	if tr and root then root.CFrame = tr.CFrame * CFrame.new(0, 0, 3) end
@@ -545,7 +647,7 @@ track(RunService.RenderStepped:Connect(function()
 	end
 end))
 
--- BUILD PAGES
+-- BUILD PAGES (การจัดแท็บใหม่)
 local pMain = Page("หลัก")
 Label(pMain, "การเคลื่อนที่")
 Toggle(pMain, "วิ่งไว", setSpeed)
@@ -553,6 +655,28 @@ Slider(pMain, "ความเร็ววิ่ง", 16, 200, S.speedVal, funct
 Toggle(pMain, "บิน (มีปุ่มขึ้น/ลง ด้านขวา)", setFly)
 Slider(pMain, "ความเร็วบิน", 10, 200, S.flyVal, function(v) S.flyVal = v end)
 Toggle(pMain, "กระโดดไม่จำกัด", function(v) S.ijump = v end)
+Toggle(pMain, "เดินทะลุกำแพง (Noclip)", function(v) S.noclip = v end)
+Toggle(pMain, "ตัวล่องหน (Invisibility)", setInvis)
+
+local pCombat = Page("ต่อสู้")
+Label(pCombat, "ระบบ Aimlock")
+Toggle(pCombat, "ล็อคหัวผู้เล่น", function(v) S.lockP = v; updateFovVisible() end)
+Toggle(pCombat, "ล็อคหัว NPC / บอท", function(v) S.lockN = v; updateFovVisible() end)
+Toggle(pCombat, "ไม่ล็อคทีมเดียวกัน", function(v) S.teamCheck = v end, true)
+Slider(pCombat, "ขนาด FOV", 30, 400, S.fov, function(v)
+	S.fov = v
+	fovCircle.Size = UDim2.fromOffset(v * 2, v * 2)
+end)
+Label(pCombat, "ระบบ Hitbox & Fling")
+Toggle(pCombat, "ขยายฮิตบ็อกซ์ NPC", function(v) S.hitbox = v end)
+Slider(pCombat, "ขนาดฮิตบ็อกซ์", 2, 30, S.hitSize, function(v) S.hitSize = v end)
+Button(pCombat, "ชนผู้เล่นที่เลือกให้กระเด็น (Fling)", function()
+	if selectedPlr then
+		flingTarget(selectedPlr)
+	else
+		notify("โปรดเลือกผู้เล่นในแท็บ 'วาร์ป' ก่อน")
+	end
+end)
 
 local pVis = Page("มองเห็น")
 Label(pVis, "ระบบ ESP")
@@ -565,21 +689,10 @@ Toggle(pVis, "มองเห็น NPC", function(v)
 	if not v then for m in pairs(npcs) do clearESP(m) end end
 end)
 
-local pAim = Page("ล็อคเป้า")
-Label(pAim, "ระบบ Aimlock")
-Toggle(pAim, "ล็อคหัวผู้เล่น", function(v) S.lockP = v; updateFovVisible() end)
-Toggle(pAim, "ล็อคหัว NPC / บอท", function(v) S.lockN = v; updateFovVisible() end)
-Toggle(pAim, "ไม่ล็อคทีมเดียวกัน", function(v) S.teamCheck = v end, true)
-Slider(pAim, "ขนาด FOV", 30, 400, S.fov, function(v)
-	S.fov = v
-	fovCircle.Size = UDim2.fromOffset(v * 2, v * 2)
-end)
-Label(pAim, "ระบบ Hitbox")
-Toggle(pAim, "ขยายฮิตบ็อกซ์ NPC", function(v) S.hitbox = v end)
-Slider(pAim, "ขนาดฮิตบ็อกซ์", 2, 30, S.hitSize, function(v) S.hitSize = v end)
-
 local pTp = Page("วาร์ป")
-Label(pTp, "เลือกผู้เล่นเพื่อวาร์ป")
+Label(pTp, "ระบบวาร์ปหน้าจอ")
+Toggle(pTp, "กดวาร์ป (Click TP)", function(v) S.clickTp = v end)
+Label(pTp, "เลือกผู้เล่นเพื่อวาร์ป / Fling")
 listFrame = new("ScrollingFrame", {
 	Size = UDim2.new(1, -6, 0, 100), BackgroundColor3 = C.row, BorderSizePixel = 0,
 	ScrollBarThickness = 3, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
@@ -593,6 +706,7 @@ refreshPlayerList()
 
 local pTool = Page("เครื่องมือ")
 Label(pTool, "ระบบเพิ่มเติม")
+Toggle(pTool, "หยิบของเร็ว (Instant E)", function(v) S.instantProximity = v end)
 Toggle(pTool, "เพิ่มแสงสว่าง", function(v) S.light = v end)
 Slider(pTool, "ระดับแสง", 1, 10, S.lightVal, function(v) S.lightVal = v end)
 Toggle(pTool, "เร่งความเร็วรถ", function(v) S.car = v end)
@@ -606,7 +720,10 @@ selectTab("หลัก")
 local function cleanup()
 	setSpeed(false)
 	setFly(false)
+	setInvis(false)
 	S.hitbox = false
+	S.noclip = false
+	S.clickTp = false
 	pcall(function() RunService:UnbindFromRenderStep("KTHubAim") end)
 	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
 	if gui then gui:Destroy() end
@@ -616,4 +733,4 @@ end
 env.__KTHubCleanup = cleanup
 closeBtn.MouseButton1Click:Connect(cleanup)
 
-notify("ขอโทษ HUB v2.0 โหลดเสร็จเรียบร้อย!")
+notify("ขอโทษ HUB v3.0 โหลดเสร็จเรียบร้อย!")
