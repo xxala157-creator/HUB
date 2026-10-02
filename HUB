@@ -4,10 +4,10 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 local LP = Players.LocalPlayer
-
--- ถ้าอัปโหลดรูปขึ้น Roblox แล้ว ใส่เลข asset id ตรงนี้ (เว้นว่างไว้ = ใช้ปุ่มหน้าตาเหมือนรูป)
-local OPEN_IMAGE_ID = ""
 
 local env = (getgenv and getgenv()) or _G
 if env.__MyHubCleanup then pcall(env.__MyHubCleanup) end
@@ -16,14 +16,17 @@ local S = {
 	speed = false, speedVal = 50,
 	fly = false, flyVal = 60,
 	ijump = false,
+	car = false, carVal = 100,
 	npcEsp = false, plrEsp = false,
 	npcLock = false, plrLock = false, teamCheck = true, fov = 150,
+	bright = false, brightVal = 3,
+	hbPlr = false, hbNpc = false, hbVal = 10,
 }
 local conns = {}
 local function track(c) table.insert(conns, c) return c end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "MyHub"
+gui.Name = "KhoTodHub"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -41,6 +44,7 @@ local PANEL = Color3.fromRGB(18, 25, 55)
 local ACCENT = Color3.fromRGB(30, 144, 255)
 local OFF = Color3.fromRGB(40, 50, 85)
 local TEXT = Color3.fromRGB(235, 240, 255)
+local SEL = Color3.fromRGB(25, 70, 140)
 
 local function new(class, props, parent)
 	local o = Instance.new(class)
@@ -52,11 +56,14 @@ local function corner(o, r) new("UICorner", { CornerRadius = UDim.new(0, r or 6)
 local function stroke(o, c, t)
 	return new("UIStroke", { Color = c, Thickness = t or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o)
 end
+local function isPress(i)
+	return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+end
 
 local function makeDraggable(handle, target)
 	local dragging, startInput, startPos
 	track(handle.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		if isPress(i) then
 			dragging = true
 			startInput = i.Position
 			startPos = target.Position
@@ -73,10 +80,12 @@ local function makeDraggable(handle, target)
 	end))
 end
 
+----------------------------------------------------------------
 -- Main window
+----------------------------------------------------------------
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(440, 270), BackgroundColor3 = BG, BorderSizePixel = 0,
+	Size = UDim2.fromOffset(440, 280), BackgroundColor3 = BG, BorderSizePixel = 0,
 }, gui)
 corner(main, 8)
 stroke(main, ACCENT, 2)
@@ -100,24 +109,26 @@ end
 local minBtn = topButton("-", -40, OFF)
 local closeBtn = topButton("X", -8, Color3.fromRGB(190, 50, 60))
 
--- ปุ่มตอนพับเก็บ (หน้าตาเหมือนรูป: พื้นขาว ตัวหนังสือดำหนา)
-local openBtn
-if OPEN_IMAGE_ID ~= "" then
-	openBtn = new("ImageButton", {
-		Position = UDim2.fromOffset(12, 70), Size = UDim2.fromOffset(96, 46), BackgroundColor3 = Color3.new(1, 1, 1),
-		Image = "rbxassetid://" .. OPEN_IMAGE_ID, ScaleType = Enum.ScaleType.Fit, Visible = false,
-	}, gui)
-else
-	openBtn = new("TextButton", {
-		Position = UDim2.fromOffset(12, 70), Size = UDim2.fromOffset(96, 46), BackgroundColor3 = Color3.new(1, 1, 1),
-		Text = "ขอโทษ", TextColor3 = Color3.new(0, 0, 0), Font = Enum.Font.GothamBlack, TextSize = 22,
-		AutoButtonColor = false, Visible = false,
-	}, gui)
-end
-corner(openBtn, 8)
+-- ปุ่มตอนพับเก็บ: แค่คำว่า "ขอโทษ"
+local openBtn = new("TextButton", {
+	Position = UDim2.fromOffset(12, 70), Size = UDim2.fromOffset(78, 34), BackgroundColor3 = Color3.new(1, 1, 1),
+	Text = "ขอโทษ", TextColor3 = Color3.new(0, 0, 0), Font = Enum.Font.GothamBlack, TextSize = 16,
+	AutoButtonColor = false, Visible = false,
+}, gui)
+corner(openBtn, 17)
 stroke(openBtn, ACCENT, 2)
+makeDraggable(openBtn, openBtn)
+do
+	local downPos
+	openBtn.InputBegan:Connect(function(i) if isPress(i) then downPos = i.Position end end)
+	openBtn.InputEnded:Connect(function(i)
+		if isPress(i) and downPos and (i.Position - downPos).Magnitude < 10 then
+			main.Visible = true
+			openBtn.Visible = false
+		end
+	end)
+end
 track(minBtn.MouseButton1Click:Connect(function() main.Visible = false; openBtn.Visible = true end))
-track(openBtn.MouseButton1Click:Connect(function() main.Visible = true; openBtn.Visible = false end))
 
 local side = new("Frame", {
 	Position = UDim2.fromOffset(8, 38), Size = UDim2.new(0, 104, 1, -46), BackgroundColor3 = PANEL, BorderSizePixel = 0,
@@ -133,9 +144,7 @@ local content = new("Frame", {
 local pages, tabBtns = {}, {}
 local function showTab(name)
 	for n, p in pairs(pages) do p.Visible = (n == name) end
-	for n, b in pairs(tabBtns) do
-		b.BackgroundColor3 = (n == name) and Color3.fromRGB(25, 70, 140) or PANEL
-	end
+	for n, b in pairs(tabBtns) do b.BackgroundColor3 = (n == name) and SEL or PANEL end
 end
 local function addTab(name, order)
 	local b = new("TextButton", {
@@ -155,10 +164,21 @@ local function addTab(name, order)
 end
 
 local function addLabel(page, text)
-	new("TextLabel", {
+	return new("TextLabel", {
 		Size = UDim2.new(1, -6, 0, 20), BackgroundTransparency = 1, Text = text, TextColor3 = ACCENT,
 		Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
 	}, page)
+end
+
+local function addButton(page, text, cb)
+	local b = new("TextButton", {
+		Size = UDim2.new(1, -6, 0, 38), BackgroundColor3 = SEL, Text = text, TextColor3 = TEXT,
+		Font = Enum.Font.GothamBold, TextSize = 13,
+	}, page)
+	corner(b, 6)
+	stroke(b, ACCENT, 1)
+	b.MouseButton1Click:Connect(cb)
+	return b
 end
 
 local function addToggle(page, text, cb, default)
@@ -230,10 +250,7 @@ local function addSlider(page, text, min, max, def, cb)
 		cb(v)
 	end
 	hit.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			setFrom(i.Position.X)
-		end
+		if isPress(i) then dragging = true; setFrom(i.Position.X) end
 	end)
 	track(UIS.InputChanged:Connect(function(i)
 		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
@@ -241,13 +258,13 @@ local function addSlider(page, text, min, max, def, cb)
 		end
 	end))
 	track(UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
-		end
+		if isPress(i) then dragging = false end
 	end))
 end
 
+----------------------------------------------------------------
 -- Character helpers
+----------------------------------------------------------------
 local function getHum()
 	local c = LP.Character
 	return c and c:FindFirstChildOfClass("Humanoid")
@@ -257,7 +274,9 @@ local function getRoot()
 	return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso"))
 end
 
+----------------------------------------------------------------
 -- 1) วิ่งไว
+----------------------------------------------------------------
 local origWS
 local function setSpeed(v)
 	S.speed = v
@@ -270,7 +289,9 @@ local function setSpeed(v)
 	end
 end
 
+----------------------------------------------------------------
 -- 2) บิน
+----------------------------------------------------------------
 local flyBV, flyBG
 local upHeld, downHeld = false, false
 
@@ -281,13 +302,13 @@ local flyPad = new("Frame", {
 local function padBtn(txt, y, setter)
 	local b = new("TextButton", {
 		Position = UDim2.fromOffset(0, y), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = BG,
-		BackgroundTransparency = 0.15, Text = txt, TextColor3 = TEXT, Font = Enum.Font.GothamBold, TextSize = 14,
+		BackgroundTransparency = 0.15, Text = txt, TextColor3 = TEXT, Font = Enum.Font.GothamBold, TextSize = 15,
 		AutoButtonColor = false,
 	}, flyPad)
 	corner(b, 28)
 	stroke(b, ACCENT, 2)
 	b.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		if isPress(i) then
 			setter(true)
 			i.Changed:Connect(function()
 				if i.UserInputState == Enum.UserInputState.End then setter(false) end
@@ -295,8 +316,8 @@ local function padBtn(txt, y, setter)
 		end
 	end)
 end
-padBtn("ขึ้น", 0, function(v) upHeld = v end)
-padBtn("ลง", 64, function(v) downHeld = v end)
+padBtn("UP", 0, function(v) upHeld = v end)
+padBtn("DN", 64, function(v) downHeld = v end)
 
 local function stopFly()
 	if flyBV then flyBV:Destroy() flyBV = nil end
@@ -326,7 +347,9 @@ local function setFly(v)
 	if v then startFly() else stopFly() end
 end
 
+----------------------------------------------------------------
 -- 3) กระโดดไม่จำกัด
+----------------------------------------------------------------
 track(UIS.JumpRequest:Connect(function()
 	if S.ijump then
 		local h = getHum()
@@ -334,7 +357,23 @@ track(UIS.JumpRequest:Connect(function()
 	end
 end))
 
+----------------------------------------------------------------
+-- 11) ปรับความเร็วรถ (รถที่ใช้ VehicleSeat)
+----------------------------------------------------------------
+local seatOrig = setmetatable({}, { __mode = "k" })
+local function setCar(v)
+	S.car = v
+	if not v then
+		for seat, ms in pairs(seatOrig) do
+			pcall(function() seat.MaxSpeed = ms end)
+		end
+		table.clear(seatOrig)
+	end
+end
+
+----------------------------------------------------------------
 -- NPC tracking
+----------------------------------------------------------------
 local npcs = {}
 local function tryAddNPC(hum)
 	local m = hum.Parent
@@ -355,8 +394,13 @@ local function alive(m)
 	if not h or h.Health <= 0 then return nil end
 	return h
 end
+local function sameTeam(p)
+	return S.teamCheck and LP.Team ~= nil and p.Team == LP.Team
+end
 
--- 4/5) ESP (NPC + ผู้เล่น)
+----------------------------------------------------------------
+-- 4/5) ESP
+----------------------------------------------------------------
 local function clearESP(m)
 	local hl = m:FindFirstChild("_HubHL")
 	if hl then hl:Destroy() end
@@ -418,19 +462,18 @@ task.spawn(function()
 	end
 end)
 
+----------------------------------------------------------------
 -- 6/7) ล็อคหัว + FOV
+----------------------------------------------------------------
 local fovCircle = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
 	Size = UDim2.fromOffset(S.fov * 2, S.fov * 2), BackgroundTransparency = 1, Visible = false,
 }, gui)
 corner(fovCircle, 1000)
 stroke(fovCircle, Color3.new(1, 1, 1), 1.5)
+local function updateFovVisible() fovCircle.Visible = S.npcLock or S.plrLock end
 
-local function updateFovVisible()
-	fovCircle.Visible = S.npcLock or S.plrLock
-end
-
-RunService:BindToRenderStep("MyHubAim", Enum.RenderPriority.Camera.Value + 1, function()
+RunService:BindToRenderStep("KhoTodAim", Enum.RenderPriority.Camera.Value + 1, function()
 	if not (S.npcLock or S.plrLock) then return end
 	local cam = Workspace.CurrentCamera
 	if not cam then return end
@@ -444,9 +487,7 @@ RunService:BindToRenderStep("MyHubAim", Enum.RenderPriority.Camera.Value + 1, fu
 		local p, onScreen = cam:WorldToViewportPoint(head.Position)
 		if not onScreen then return end
 		local d = (Vector2.new(p.X, p.Y) - center).Magnitude
-		if d <= S.fov and (not bestD or d < bestD) then
-			best, bestD = head, d
-		end
+		if d <= S.fov and (not bestD or d < bestD) then best, bestD = head, d end
 	end
 
 	if S.npcLock then
@@ -454,10 +495,7 @@ RunService:BindToRenderStep("MyHubAim", Enum.RenderPriority.Camera.Value + 1, fu
 	end
 	if S.plrLock then
 		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LP and p.Character then
-				local sameTeam = S.teamCheck and LP.Team ~= nil and p.Team == LP.Team
-				if not sameTeam then consider(p.Character) end
-			end
+			if p ~= LP and p.Character and not sameTeam(p) then consider(p.Character) end
 		end
 	end
 
@@ -467,79 +505,79 @@ RunService:BindToRenderStep("MyHubAim", Enum.RenderPriority.Camera.Value + 1, fu
 	end
 end)
 
--- Main loop
-track(RunService.Heartbeat:Connect(function()
-	local h = getHum()
-	if S.speed and h then
-		if not origWS then origWS = 16 end
-		h.WalkSpeed = S.speedVal
-	end
-	if S.fly then
-		local root = getRoot()
-		if not root or not h then return end
-		if not flyBV or not flyBV.Parent then startFly() end
-		if not flyBV then return end
-		local cam = Workspace.CurrentCamera
-		local look, right = cam.CFrame.LookVector, cam.CFrame.RightVector
-		local flatLook = Vector3.new(look.X, 0, look.Z)
-		local flatRight = Vector3.new(right.X, 0, right.Z)
-		if flatLook.Magnitude > 0 then flatLook = flatLook.Unit end
-		if flatRight.Magnitude > 0 then flatRight = flatRight.Unit end
-		local md = h.MoveDirection
-		local vel = (look * md:Dot(flatLook) + right * md:Dot(flatRight)) * S.flyVal
-		if upHeld then vel += Vector3.new(0, S.flyVal, 0) end
-		if downHeld then vel -= Vector3.new(0, S.flyVal, 0) end
-		flyBV.Velocity = vel
-		if flatLook.Magnitude > 0 then
-			flyBG.CFrame = CFrame.lookAt(root.Position, root.Position + flatLook)
+----------------------------------------------------------------
+-- 8) ลดอาการแลค
+----------------------------------------------------------------
+local lagOn = false
+local lagBackup = {}
+local lagQuality
+local function bk(inst, props)
+	local old = {}
+	for k, nv in pairs(props) do
+		local ok, ov = pcall(function() return inst[k] end)
+		if ok then
+			old[k] = ov
+			pcall(function() inst[k] = nv end)
 		end
 	end
-end))
-
--- Build tabs
-local pMove = addTab("เคลื่อนที่", 1)
-local pVis = addTab("มองเห็น", 2)
-local pAim = addTab("ล็อคเป้า", 3)
-
-addLabel(pMove, "การเคลื่อนที่")
-addToggle(pMove, "วิ่งไว", setSpeed)
-addSlider(pMove, "ความเร็ววิ่ง", 16, 200, S.speedVal, function(v) S.speedVal = v end)
-addToggle(pMove, "บิน (ปุ่มขึ้น/ลง ด้านขวา)", setFly)
-addSlider(pMove, "ความเร็วบิน", 10, 200, S.flyVal, function(v) S.flyVal = v end)
-addToggle(pMove, "กระโดดไม่จำกัด", function(v) S.ijump = v end)
-
-addLabel(pVis, "การมองเห็น")
-addToggle(pVis, "มองเห็นผู้เล่น", function(v)
-	S.plrEsp = v
-	if not v then clearPlrESP() end
-end)
-addToggle(pVis, "มองเห็น NPC", function(v)
-	S.npcEsp = v
-	if not v then clearNPCESP() end
-end)
-
-addLabel(pAim, "ล็อคหัว")
-addToggle(pAim, "ล็อคหัวผู้เล่น", function(v) S.plrLock = v; updateFovVisible() end)
-addToggle(pAim, "ล็อคหัว NPC / บอท", function(v) S.npcLock = v; updateFovVisible() end)
-addToggle(pAim, "ไม่ล็อคทีมเดียวกัน", function(v) S.teamCheck = v end, true)
-addSlider(pAim, "ขนาด FOV", 30, 400, S.fov, function(v)
-	S.fov = v
-	fovCircle.Size = UDim2.fromOffset(v * 2, v * 2)
-end)
-
-showTab("เคลื่อนที่")
-
--- Cleanup
-local function cleanup()
-	S.npcLock, S.plrLock = false, false
-	setSpeed(false)
-	setFly(false)
-	S.npcEsp, S.plrEsp = false, false
-	clearNPCESP()
-	clearPlrESP()
-	pcall(function() RunService:UnbindFromRenderStep("MyHubAim") end)
-	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-	if gui then gui:Destroy() end
+	table.insert(lagBackup, { inst, old })
 end
-env.__MyHubCleanup = cleanup
-closeBtn.MouseButton1Click:Connect(cleanup)
+local function setLag(v)
+	if v == lagOn then return end
+	lagOn = v
+	if v then
+		task.spawn(function()
+			pcall(function()
+				lagQuality = settings().Rendering.QualityLevel
+				settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+			end)
+			bk(Lighting, { GlobalShadows = false })
+			for _, e in ipairs(Lighting:GetChildren()) do
+				if e:IsA("PostEffect") then bk(e, { Enabled = false }) end
+			end
+			local terrain = Workspace:FindFirstChildOfClass("Terrain")
+			if terrain then bk(terrain, { Decoration = false }) end
+			local n = 0
+			for _, d in ipairs(Workspace:GetDescendants()) do
+				if not lagOn then break end
+				if d:IsA("BasePart") and not d:IsA("Terrain") then
+					bk(d, { Material = Enum.Material.SmoothPlastic, Reflectance = 0, CastShadow = false })
+				elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Smoke")
+					or d:IsA("Fire") or d:IsA("Sparkles") then
+					bk(d, { Enabled = false })
+				end
+				n += 1
+				if n % 300 == 0 then task.wait() end
+			end
+		end)
+	else
+		for _, rec in ipairs(lagBackup) do
+			for k, ov in pairs(rec[2]) do
+				pcall(function() rec[1][k] = ov end)
+			end
+		end
+		lagBackup = {}
+		if lagQuality then
+			pcall(function() settings().Rendering.QualityLevel = lagQuality end)
+		end
+	end
+end
+
+----------------------------------------------------------------
+-- 10) เพิ่มแสงสว่าง
+----------------------------------------------------------------
+local brightBackup
+local function applyBright()
+	local v = S.brightVal
+	local a = math.clamp(v * 25, 0, 255)
+	Lighting.Brightness = v
+	Lighting.ClockTime = 14
+	Lighting.Ambient = Color3.fromRGB(a, a, a)
+	Lighting.OutdoorAmbient = Color3.fromRGB(a, a, a)
+	Lighting.FogEnd = 1e6
+end
+local function setBright(v)
+	S.bright = v
+	if v then
+		brightBackup = {
+			Brightness = Lighting.Br
