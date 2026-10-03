@@ -567,7 +567,6 @@ local function Slider(pg,text,min,max,def,cb)
 
 		fill.Size =
 			UDim2.fromScale(rel,1)
-
 		lbl.Text =
 			text..": "..v
 
@@ -623,6 +622,7 @@ local function Button(pg,text,cb)
 
 	return b
 end
+
 --// MOVEMENT
 local bodyVelocity
 local bodyGyro
@@ -1133,7 +1133,6 @@ local function freecamStep(dt)
 	if UIS:IsKeyDown(Enum.KeyCode.W) then
 		move += Vector3.new(0,0,-1)
 	end
-
 	if UIS:IsKeyDown(Enum.KeyCode.S) then
 		move += Vector3.new(0,0,1)
 	end
@@ -1290,6 +1289,7 @@ local function updateNPCESP()
 		end
 	end
 end
+
 --// STATUS SYSTEM
 local statusData = {
 	Speed = "OFF",
@@ -1306,6 +1306,11 @@ local statusData = {
 local function boolText(v)
 	return v and "ON" or "OFF"
 end
+
+-- FIX:
+-- ประกาศ statusLabels ก่อน updateStatus()
+-- เพื่อให้ฟังก์ชันใช้ local variable ตัวเดียวกัน
+local statusLabels = {}
 
 local function updateStatus()
 	statusData.Speed = boolText(S.speed)
@@ -1345,7 +1350,6 @@ local warpPage = Page("วาร์ป")
 local toolsPage = Page("เครื่องมือ")
 
 --// STATUS UI
-local statusLabels = {}
 
 Label(
 	statusPage,
@@ -1944,8 +1948,8 @@ fovCircle.Size =
 	)
 
 updateStatus()
---// MAIN RUNTIME LOOP
 
+--// MAIN RUNTIME LOOP
 track(RunService.RenderStepped:Connect(function(dt)
 	-- Speed
 	if S.speed then
@@ -2029,12 +2033,26 @@ track(
 	):Connect(function()
 		task.wait()
 
+		local cam = Workspace.CurrentCamera
+		if not cam then
+			return
+		end
+
 		if S.zoom then
 			updateZoom()
 		end
 
-		if S.freecam then
-			startFreecam()
+		-- ไม่เรียก startFreecam() ซ้ำ
+		-- เพื่อไม่ให้ตำแหน่งและมุมกล้องถูกรีเซ็ต
+		if S.freecam and freecamActive then
+			cam.CameraType = Enum.CameraType.Scriptable
+			cam.CFrame =
+				CFrame.new(freecamPos)
+				* CFrame.Angles(
+					freecamRot.X,
+					freecamRot.Y,
+					0
+				)
 		end
 	end)
 )
