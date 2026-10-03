@@ -40,8 +40,8 @@ local S = {
 	pickupOnce = false,
 	espLine = false,
 	zoom = false, zoomVal = 80,
-	spirit = false, spiritVal = 80,
-	spiritPos = nil,
+	spec = false, specSpeed = 60,
+	hitboxP = false, hitSizeP = 10,
 }
 
 local C = {
@@ -260,7 +260,7 @@ local closeBtn = new("TextButton", {
 	Position = UDim2.new(1, -8, 0.5, 0),
 	Size = UDim2.fromOffset(26, 22),
 	BackgroundColor3 = Color3.fromRGB(190, 50, 60),
-	Text = "ปิด",
+	Text = "X",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 14
@@ -273,7 +273,7 @@ local minBtn = new("TextButton", {
 	Position = UDim2.new(1, -38, 0.5, 0),
 	Size = UDim2.fromOffset(26, 22),
 	BackgroundColor3 = C.off,
-	Text = "ย่อ",
+	Text = "-",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 14
@@ -286,7 +286,7 @@ local openBtn = new("TextButton", {
 	Size = UDim2.fromOffset(96, 46),
 	BackgroundColor3 = Color3.new(1, 1, 1),
 	AutoButtonColor = false,
-	Text = "เปิด",
+	Text = "ขอโทษ",
 	TextColor3 = Color3.new(0, 0, 0),
 	Font = FONT,
 	TextSize = 22,
@@ -632,77 +632,6 @@ local function alive(m)
 	return h
 end
 
--- กล้องซูมออก
-local defaultFov = nil
-local function setZoom(v)
-	S.zoom = v
-	local cam = Workspace.CurrentCamera
-	if not cam then return end
-	if v then
-		if not defaultFov then defaultFov = cam.FieldOfView end
-		cam.FieldOfView = math.clamp(S.zoomVal, 40, 120)
-	else
-		if defaultFov then cam.FieldOfView = defaultFov end
-		defaultFov = nil
-	end
-end
-
--- ถอดจิต: ควบคุมกล้องแยกจากตัวละคร แล้ววาร์ปไปตำแหน่งกล้องได้
-local spiritConn
-local spiritPosValue
-local function stopSpirit()
-	if spiritConn then spiritConn:Disconnect(); spiritConn = nil end
-	local cam = Workspace.CurrentCamera
-	if cam then
-		cam.CameraType = Enum.CameraType.Custom
-		local _, hum = getChar()
-		if hum then cam.CameraSubject = hum end
-	end
-	S.spirit = false
-	S.spiritPos = nil
-	spiritPad.Visible = false
-	for k in pairs(spiritHeld) do spiritHeld[k] = false end
-	if spiritPosValue then spiritPosValue.Text = "ตำแหน่งถอดจิต: ยังไม่ได้บันทึก" end
-end
-
-local function startSpirit()
-	stopSpirit()
-	local cam = Workspace.CurrentCamera
-	if not cam then return end
-	cam.CameraType = Enum.CameraType.Scriptable
-	S.spirit = true
-	S.spiritPos = cam.CFrame
-	spiritPad.Visible = true
-	spiritConn = RunService.RenderStepped:Connect(function(dt)
-		if not S.spirit or not cam.Parent then return end
-		local cf = cam.CFrame
-		local move = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) or spiritHeld.f then move += cf.LookVector end
-		if UIS:IsKeyDown(Enum.KeyCode.S) or spiritHeld.b then move -= cf.LookVector end
-		if UIS:IsKeyDown(Enum.KeyCode.A) or spiritHeld.l then move -= cf.RightVector end
-		if UIS:IsKeyDown(Enum.KeyCode.D) or spiritHeld.r then move += cf.RightVector end
-		if UIS:IsKeyDown(Enum.KeyCode.Space) or spiritHeld.u then move += Vector3.yAxis end
-		if UIS:IsKeyDown(Enum.KeyCode.LeftControl) or spiritHeld.d then move -= Vector3.yAxis end
-		if move.Magnitude > 0 then
-			cam.CFrame = cf + move.Unit * S.spiritVal * dt
-		end
-		S.spiritPos = cam.CFrame
-	end)
-end
-
-local function setSpirit(v)
-	if v then startSpirit() else stopSpirit() end
-end
-
-local function warpToSpirit()
-	if not S.spiritPos then notify("ยังไม่มีตำแหน่งถอดจิต") return end
-	local _, _, root = getChar()
-	if root then
-		root.CFrame = CFrame.new(S.spiritPos.Position + Vector3.new(0, 3, 0))
-		notify("วาร์ปไปยังตำแหน่งที่ถอดจิตไว้แล้ว")
-	end
-end
-
 -- Movement
 local origWS
 
@@ -735,38 +664,6 @@ local flyPad = new("Frame", {
 	BackgroundTransparency = 1,
 	Visible = false
 }, overlay)
-
--- ปุ่มควบคุมถอดจิตสำหรับมือถือ
-local spiritPad = new("Frame", {
-	AnchorPoint = Vector2.new(0, 1),
-	Position = UDim2.new(0, 16, 1, -16),
-	Size = UDim2.fromOffset(180, 120),
-	BackgroundTransparency = 1,
-	Visible = false
-}, overlay)
-
-local spiritHeld = {f=false,b=false,l=false,r=false,u=false,d=false}
-local function spiritBtn(txt, x, y, key)
-	local b = new("TextButton", {
-		Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(54, 36),
-		BackgroundColor3 = C.bg, BackgroundTransparency = 0.2, Text = txt,
-		TextColor3 = C.text, Font = FONT, TextSize = 14, AutoButtonColor = false
-	}, spiritPad)
-	corner(b, 8); stroke(b, C.accent, 1)
-	b.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			spiritHeld[key] = true
-		end
-	end)
-	b.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			spiritHeld[key] = false
-		end
-	end)
-end
-spiritBtn("↑", 63, 0, "f"); spiritBtn("↓", 63, 42, "b")
-spiritBtn("←", 5, 42, "l"); spiritBtn("→", 121, 42, "r")
-spiritBtn("ขึ้น", 5, 84, "u"); spiritBtn("ลง", 121, 84, "d")
 
 local function padBtn(txt, y, setter)
 	local b = new("TextButton", {
@@ -824,7 +721,7 @@ local function stopFly()
 		hum.PlatformStand = false
 	end
 
-	flyPad.Visible = false
+	flyPad.Visible = (S.spec == true)
 	upHeld, downHeld = false, false
 end
 
@@ -1078,9 +975,8 @@ task.spawn(function()
 			for part, size in pairs(origSizes) do
 
 				if part and part.Parent then
-					part.Size = size.size
-					part.Transparency = size.transparency
-					part.CanCollide = size.collide
+					part.Size = size
+					part.Transparency = 1
 				end
 
 				origSizes[part] = nil
@@ -1090,6 +986,293 @@ task.spawn(function()
 		task.wait(0.5)
 	end
 end)
+-- Player Hitbox (v3.4)
+local origSizesP = {}
+
+local function restoreP()
+	for part, d in pairs(origSizesP) do
+		if part and part.Parent then
+			part.Size = d.size
+			part.Transparency = d.tr
+			part.CanCollide = d.cc
+		end
+
+		origSizesP[part] = nil
+	end
+end
+
+task.spawn(function()
+	while gui.Parent do
+		if S.hitboxP then
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LP and p.Character and alive(p.Character) then
+					local r = p.Character:FindFirstChild("HumanoidRootPart")
+
+					local sameTeam =
+						S.teamCheck
+						and LP.Team ~= nil
+						and p.Team == LP.Team
+
+					if r then
+						if sameTeam then
+							local d = origSizesP[r]
+
+							if d then
+								r.Size = d.size
+								r.Transparency = d.tr
+								r.CanCollide = d.cc
+								origSizesP[r] = nil
+							end
+						else
+							if not origSizesP[r] then
+								origSizesP[r] = {
+									size = r.Size,
+									tr = r.Transparency,
+									cc = r.CanCollide
+								}
+							end
+
+							r.Size = Vector3.new(S.hitSizeP, S.hitSizeP, S.hitSizeP)
+							r.Transparency = 0.7
+							r.CanCollide = false
+						end
+					end
+				end
+			end
+		else
+			restoreP()
+		end
+
+		task.wait(0.5)
+	end
+end)
+
+-- Zoom out (v3.4)
+local origZoomMin, origZoomMax, origCamMode
+
+local function applyZoom()
+	if not S.zoom then return end
+
+	if LP.CameraMaxZoomDistance ~= S.zoomVal
+		or LP.CameraMinZoomDistance ~= S.zoomVal then
+
+		pcall(function()
+			LP.CameraMinZoomDistance = 0.5
+			LP.CameraMaxZoomDistance = S.zoomVal
+			LP.CameraMinZoomDistance = S.zoomVal
+		end)
+	end
+
+	if LP.CameraMode ~= Enum.CameraMode.Classic then
+		pcall(function()
+			LP.CameraMode = Enum.CameraMode.Classic
+		end)
+	end
+end
+
+local function setZoom(v)
+	if v and not S.zoom then
+		origZoomMin = LP.CameraMinZoomDistance
+		origZoomMax = LP.CameraMaxZoomDistance
+		origCamMode = LP.CameraMode
+	end
+
+	S.zoom = v
+
+	if v then
+		applyZoom()
+	elseif origZoomMax then
+		pcall(function()
+			LP.CameraMinZoomDistance = 0.5
+			LP.CameraMaxZoomDistance = origZoomMax
+			LP.CameraMinZoomDistance = origZoomMin
+			LP.CameraMode = origCamMode
+		end)
+
+		origZoomMin, origZoomMax, origCamMode = nil, nil, nil
+	end
+end
+
+-- Spectate / ถอดจิต (v3.4)
+local specActive = false
+local specRoot, specWasAnchored
+local specPos = Vector3.zero
+local specYaw, specPitch = 0, 0
+local specToggleSet
+
+local function stopSpec()
+	if not specActive then return end
+
+	specActive = false
+
+	pcall(function()
+		RunService:UnbindFromRenderStep("KTHubSpec")
+	end)
+
+	if specRoot and specRoot.Parent then
+		specRoot.Anchored = specWasAnchored or false
+	end
+
+	specRoot = nil
+
+	local cam = Workspace.CurrentCamera
+	local _, hum = getChar()
+
+	if cam then
+		cam.CameraType = Enum.CameraType.Custom
+
+		if hum then
+			cam.CameraSubject = hum
+		end
+	end
+
+	flyPad.Visible = S.fly
+	upHeld, downHeld = false, false
+end
+
+local function startSpec()
+	local _, hum, root = getChar()
+	local cam = Workspace.CurrentCamera
+
+	if not (hum and root and cam) then
+		notify("ยังไม่มีตัวละคร")
+		return false
+	end
+
+	specActive = true
+	specRoot = root
+	specWasAnchored = root.Anchored
+	root.Anchored = true
+
+	specPos = cam.CFrame.Position
+
+	local rx, ry = cam.CFrame:ToOrientation()
+	specPitch, specYaw = rx, ry
+
+	cam.CameraType = Enum.CameraType.Scriptable
+	flyPad.Visible = true
+
+	RunService:BindToRenderStep(
+		"KTHubSpec",
+		Enum.RenderPriority.Camera.Value + 2,
+		function(dt)
+			local c = Workspace.CurrentCamera
+			if not c then return end
+
+			local _, h, r = getChar()
+
+			if not (h and r) or r ~= specRoot or h.Health <= 0 then
+				if specToggleSet then
+					specToggleSet(false)
+				else
+					stopSpec()
+				end
+
+				return
+			end
+
+			if not r.Anchored then
+				r.Anchored = true
+			end
+
+			if c.CameraType ~= Enum.CameraType.Scriptable then
+				c.CameraType = Enum.CameraType.Scriptable
+			end
+
+			local rot = CFrame.fromOrientation(specPitch, specYaw, 0)
+			local look = rot.LookVector
+			local right = rot.RightVector
+
+			local flatLook = Vector3.new(look.X, 0, look.Z)
+			local flatRight = Vector3.new(right.X, 0, right.Z)
+
+			if flatLook.Magnitude > 0.001 then flatLook = flatLook.Unit end
+			if flatRight.Magnitude > 0.001 then flatRight = flatRight.Unit end
+
+			local md = h.MoveDirection
+
+			local vel =
+				look * md:Dot(flatLook)
+				+ right * md:Dot(flatRight)
+
+			if upHeld then
+				vel += Vector3.new(0, 1, 0)
+			end
+
+			if downHeld then
+				vel -= Vector3.new(0, 1, 0)
+			end
+
+			specPos += vel * S.specSpeed * dt
+
+			c.CFrame = CFrame.new(specPos) * rot
+			c.Focus = c.CFrame
+		end
+	)
+
+	return true
+end
+
+local function setSpec(v)
+	if v then
+		if specActive then
+			S.spec = true
+			return
+		end
+
+		S.spec = true
+
+		if not startSpec() then
+			S.spec = false
+
+			task.defer(function()
+				if specToggleSet then
+					specToggleSet(false)
+				end
+			end)
+		end
+	else
+		S.spec = false
+		stopSpec()
+	end
+end
+
+track(UIS.InputChanged:Connect(function(i, processed)
+	if not specActive then return end
+
+	local rotate = false
+
+	if i.UserInputType == Enum.UserInputType.MouseMovement then
+		rotate = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+	elseif i.UserInputType == Enum.UserInputType.Touch then
+		rotate = not processed
+	end
+
+	if rotate then
+		specYaw -= i.Delta.X * 0.005
+		specPitch = math.clamp(specPitch - i.Delta.Y * 0.005, -1.5, 1.5)
+	end
+end))
+
+local function warpBodyToCamera(thenExit)
+	if not specActive then
+		notify("เปิดถอดจิตก่อน")
+		return
+	end
+
+	local _, _, root = getChar()
+
+	if root and root == specRoot then
+		root.CFrame = CFrame.new(specPos) * CFrame.Angles(0, specYaw, 0)
+		root.AssemblyLinearVelocity = Vector3.zero
+		notify("วาร์ปร่างมาที่กล้องแล้ว")
+	end
+
+	if thenExit and specToggleSet then
+		specToggleSet(false)
+	end
+end
+
 -- Noclip
 local noclipConn
 
@@ -1450,7 +1633,7 @@ local function getCountry()
 		return country
 	end
 
-	return "ไม่ทราบ"
+	return "Unknown"
 end
 
 local function getCreator()
@@ -1462,7 +1645,7 @@ local function getCreator()
 	end)
 
 	if ok and info and info.Creator then
-		return info.Creator.Name or "ไม่ทราบ"
+		return info.Creator.Name or "Unknown"
 	end
 
 	local ok2, info2 = pcall(function()
@@ -1470,10 +1653,10 @@ local function getCreator()
 	end)
 
 	if ok2 and info2 and info2.Creator then
-		return info2.Creator.Name or "ไม่ทราบ"
+		return info2.Creator.Name or "Unknown"
 	end
 
-	return "ไม่ทราบ"
+	return "Unknown"
 end
 
 local function getPing()
@@ -1490,7 +1673,7 @@ end
 
 local function getStatusText()
 	return {
-		FE = "เปิดใช้งาน",
+		FE = "Enabled",
 		JobID = game.JobId ~= "" and game.JobId or "Studio",
 		PlaceID = tostring(game.PlaceId),
 		Country = getCountry(),
@@ -1643,6 +1826,10 @@ track(
 track(
 	RunService.RenderStepped:Connect(function()
 
+		if S.zoom then
+			applyZoom()
+		end
+
 		if S.light then
 
 			Lighting.Brightness =
@@ -1677,7 +1864,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 26),
 	Position = UDim2.fromOffset(12, 7),
 	BackgroundTransparency = 1,
-	Text = "แดชบอร์ดเซิร์ฟเวอร์",
+	Text = "SERVER DASHBOARD",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 17,
@@ -1695,21 +1882,21 @@ new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
-Label(pStatus, "เซิร์ฟเวอร์")
+Label(pStatus, "SERVER")
 
-statusRow(pStatus, "ระบบ FE", "FE")
-statusRow(pStatus, "รหัสห้อง", "JobID")
-statusRow(pStatus, "รหัสเกม", "PlaceID")
-statusRow(pStatus, "ประเทศ", "Country")
-statusRow(pStatus, "ชื่อแผนที่", "MapName")
-statusRow(pStatus, "เกม", "GameName")
-statusRow(pStatus, "ผู้สร้าง", "Creator")
+statusRow(pStatus, "FE", "FE")
+statusRow(pStatus, "Job ID", "JobID")
+statusRow(pStatus, "Place ID", "PlaceID")
+statusRow(pStatus, "Country", "Country")
+statusRow(pStatus, "Map Name", "MapName")
+statusRow(pStatus, "Game", "GameName")
+statusRow(pStatus, "Creator", "Creator")
 
-Label(pStatus, "ผู้เล่น")
+Label(pStatus, "PLAYER")
 
-statusRow(pStatus, "รหัสผู้ใช้", "UserID")
-statusRow(pStatus, "เฟรมต่อวินาที", "FPS")
-statusRow(pStatus, "ปิง", "Ping")
+statusRow(pStatus, "User ID", "UserID")
+statusRow(pStatus, "FPS", "FPS")
+statusRow(pStatus, "Ping", "Ping")
 
 local function updateStatus()
 	if not pStatus or not pStatus.Parent then
@@ -1785,23 +1972,6 @@ Toggle(
 	setNoclip
 )
 
-Label(pMain, "กล้อง")
-
-Toggle(pMain, "ซูมออกหน้าจอ", setZoom)
-
-Slider(pMain, "ระยะซูมออก", 40, 120, S.zoomVal, function(v)
-	S.zoomVal = v
-	if S.zoom then setZoom(true) end
-end)
-
-Toggle(pMain, "ถอดจิต", setSpirit)
-
-Slider(pMain, "ความเร็วถอดจิต", 10, 300, S.spiritVal, function(v)
-	S.spiritVal = v
-end)
-
-Button(pMain, "วาร์ปไปจุดที่ถอดจิตไว้", warpToSpirit)
-
 -- มองเห็น
 local pVis = Page("มองเห็น")
 
@@ -1848,6 +2018,29 @@ Toggle(
 		if not v then
 			hideAimLine()
 		end
+	end
+)
+
+Label(
+	pVis,
+	"กล้อง"
+)
+
+Toggle(
+	pVis,
+	"ซูมออกหน้าจอไกล",
+	setZoom
+)
+
+Slider(
+	pVis,
+	"ระยะซูม",
+	10,
+	500,
+	S.zoomVal,
+	function(v)
+		S.zoomVal = v
+		applyZoom()
 	end
 )
 
@@ -1911,7 +2104,7 @@ Label(
 
 Toggle(
 	pAim,
-	"ขยายฮิตบ็อกซ์ผู้เล่นและ NPC",
+	"ขยายฮิตบ็อกซ์ NPC",
 	function(v)
 		S.hitbox = v
 	end
@@ -1928,6 +2121,24 @@ Slider(
 	end
 )
 
+Toggle(
+	pAim,
+	"ขยายฮิตบ็อกซ์ผู้เล่น",
+	function(v)
+		S.hitboxP = v
+	end
+)
+
+Slider(
+	pAim,
+	"ขนาดฮิตบ็อกซ์ผู้เล่น",
+	2,
+	30,
+	S.hitSizeP,
+	function(v)
+		S.hitSizeP = v
+	end
+)
 
 -- Warp
 local pTp = Page("วาร์ป")
@@ -1979,6 +2190,44 @@ Toggle(
 	pTp,
 	"กดหน้าจอเพื่อวาร์ป",
 	setClickTeleport
+)
+
+Label(
+	pTp,
+	"ถอดจิต (ลากหน้าจอ/คลิกขวาค้างเพื่อหมุนกล้อง)"
+)
+
+specToggleSet = Toggle(
+	pTp,
+	"ถอดจิต (ตัวค้างอยู่ที่เดิม)",
+	setSpec
+)
+
+Slider(
+	pTp,
+	"ความเร็วถอดจิต",
+	10,
+	300,
+	S.specSpeed,
+	function(v)
+		S.specSpeed = v
+	end
+)
+
+Button(
+	pTp,
+	"วาร์ปร่างไปที่กล้อง (ยังถอดจิตอยู่)",
+	function()
+		warpBodyToCamera(false)
+	end
+)
+
+Button(
+	pTp,
+	"วาร์ปร่างไปที่กล้อง แล้วกลับเข้าร่าง",
+	function()
+		warpBodyToCamera(true)
+	end
 )
 
 refreshPlayerList()
@@ -2062,10 +2311,12 @@ local function cleanup()
 
 	setSpeed(false)
 	setFly(false)
-	setZoom(false)
-	stopSpirit()
 
 	S.hitbox = false
+	S.hitboxP = false
+	restoreP()
+	setSpec(false)
+	setZoom(false)
 	hideAimLine()
 
 	setNoclip(false)
