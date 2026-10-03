@@ -1,8 +1,4 @@
---// ขอโทษ HUB v3.4
---// Delta / Mobile
---// Unified Edition
---// ภาษาไทยทั้งหมด
-
+--// ขอโทษ HUB v3.2
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,75 +11,35 @@ local Workspace = game:GetService("Workspace")
 local Stats = game:GetService("Stats")
 local MarketplaceService = game:GetService("MarketplaceService")
 local LocalizationService = game:GetService("LocalizationService")
-
 local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
 local env = (getgenv and getgenv()) or _G
-
-if env.__KTHubCleanup then
-	pcall(env.__KTHubCleanup)
-end
+if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
 
 local conns = {}
-
 local function track(c)
 	table.insert(conns, c)
 	return c
 end
 
---==================================================
--- การตั้งค่า
---==================================================
-
 local S = {
-	speed = false,
-	speedVal = 50,
-
-	fly = false,
-	flyVal = 60,
-
+	speed = false, speedVal = 50,
+	fly = false, flyVal = 60,
 	ijump = false,
-
-	espP = false,
-	espN = false,
-
-	lockP = false,
-	lockN = false,
-
-	teamCheck = true,
-	fov = 150,
-
-	hitbox = false,
-	hitSize = 10,
-
-	playerHitbox = false,
-	playerHitSize = 10,
-
-	light = false,
-	lightVal = 3,
-
-	car = false,
-	carVal = 100,
+	espP = false, espN = false,
+	lockP = false, lockN = false, teamCheck = true, fov = 150,
+	hitbox = false, hitSize = 10,
+	light = false, lightVal = 3,
+	car = false, carVal = 100,
 
 	noclip = false,
 	invisible = false,
-
 	clickTp = false,
 	pickupOnce = false,
-
 	espLine = false,
-
 	wallbang = false,
-
-	-- ซูม
-	zoom = false,
-	zoomVal = 500,
-
-	-- ถอดจิต
-	freecam = false,
-	freecamSpeed = 60,
 }
 
 local C = {
@@ -97,21 +53,12 @@ local C = {
 
 local FONT = Enum.Font.GothamBold
 
---==================================================
--- ตัวสร้าง GUI
---==================================================
-
 local function new(class, props, parent)
 	local o = Instance.new(class)
-
 	for k, v in pairs(props) do
 		o[k] = v
 	end
-
-	if parent then
-		o.Parent = parent
-	end
-
+	if parent then o.Parent = parent end
 	return o
 end
 
@@ -132,17 +79,14 @@ end
 local function notify(t)
 	pcall(function()
 		StarterGui:SetCore("SendNotification", {
-			Title = "ขอโทษ HUB v3.4",
+			Title = "ขอโทษ HUB",
 			Text = t,
 			Duration = 3
 		})
 	end)
 end
 
---==================================================
--- GUI หลัก
---==================================================
-
+-- GUI
 local okG, guiParent = pcall(function()
 	return (gethui and gethui()) or game:GetService("CoreGui")
 end)
@@ -163,14 +107,9 @@ local overlay = new("ScreenGui", {
 	IgnoreGuiInset = true
 }, guiParent)
 
---==================================================
--- ลากหน้าต่าง
---==================================================
-
+-- Drag
 local function makeDraggable(handle, target)
-	local dragging = false
-	local startInput
-	local startPos
+	local dragging, startInput, startPos
 
 	track(handle.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
@@ -202,16 +141,12 @@ local function makeDraggable(handle, target)
 	track(UIS.InputEnded:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch then
-
 			dragging = false
 		end
 	end))
 end
 
---==================================================
--- วง FOV
---==================================================
-
+-- FOV
 local fovCircle = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
@@ -223,10 +158,7 @@ local fovCircle = new("Frame", {
 corner(fovCircle, 1000)
 stroke(fovCircle, C.accent, 1.5)
 
---==================================================
--- เส้นเล็ง
---==================================================
-
+-- ESP Aim Line
 local aimLine = new("Frame", {
 	AnchorPoint = Vector2.new(0, 0.5),
 	Position = UDim2.fromOffset(0, 0),
@@ -261,14 +193,12 @@ local function setAimLine(head)
 	end
 
 	local cam = Workspace.CurrentCamera
-
 	if not cam then
 		hideAimLine()
 		return
 	end
 
 	local p, onScreen = cam:WorldToViewportPoint(head.Position)
-
 	if not onScreen then
 		hideAimLine()
 		return
@@ -288,17 +218,12 @@ local function setAimLine(head)
 	aimLine.Position = UDim2.fromOffset(center.X, center.Y)
 	aimLine.Size = UDim2.fromOffset(distance, 2)
 	aimLine.Rotation = math.deg(math.atan2(delta.Y, delta.X))
-
 	aimDot.Position = UDim2.fromOffset(target.X, target.Y)
-
 	aimLine.Visible = true
 	aimDot.Visible = true
 end
 
---==================================================
--- หน้าต่างหลัก
---==================================================
-
+-- Main
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
@@ -319,7 +244,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -70, 1, 0),
 	Position = UDim2.fromOffset(12, 0),
 	BackgroundTransparency = 1,
-	Text = "ขอโทษ HUB | v3.4",
+	Text = "ขอโทษ HUB | v3.2",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 16,
@@ -390,10 +315,7 @@ openBtn.MouseButton1Click:Connect(function()
 	openBtn.Visible = false
 end)
 
---==================================================
 -- Sidebar
---==================================================
-
 local sidebar = new("Frame", {
 	Size = UDim2.new(0, 105, 1, -44),
 	Position = UDim2.fromOffset(8, 36),
@@ -419,8 +341,7 @@ local content = new("Frame", {
 
 corner(content, 6)
 
-local pages = {}
-local tabBtns = {}
+local pages, tabBtns = {}, {}
 
 local function selectTab(name)
 	for n, p in pairs(pages) do
@@ -428,10 +349,7 @@ local function selectTab(name)
 	end
 
 	for n, b in pairs(tabBtns) do
-		b.BackgroundColor3 =
-			(n == name)
-			and C.accent
-			or C.row
+		b.BackgroundColor3 = (n == name) and C.accent or C.row
 	end
 end
 
@@ -542,8 +460,7 @@ local function Toggle(pg, text, cb, default)
 			sw,
 			TweenInfo.new(0.15),
 			{
-				BackgroundColor3 =
-					on and C.accent or C.off
+				BackgroundColor3 = on and C.accent or C.off
 			}
 		):Play()
 
@@ -589,10 +506,7 @@ local function Slider(pg, text, min, max, def, cb)
 	corner(bar, 3)
 
 	local fill = new("Frame", {
-		Size = UDim2.fromScale(
-			(def - min) / (max - min),
-			1
-		),
+		Size = UDim2.fromScale((def - min) / (max - min), 1),
 		BackgroundColor3 = C.accent
 	}, bar)
 
@@ -611,8 +525,7 @@ local function Slider(pg, text, min, max, def, cb)
 
 	local function update(x)
 		local rel = math.clamp(
-			(x - bar.AbsolutePosition.X)
-				/ bar.AbsoluteSize.X,
+			(x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X,
 			0,
 			1
 		)
@@ -623,7 +536,6 @@ local function Slider(pg, text, min, max, def, cb)
 
 		fill.Size = UDim2.fromScale(rel, 1)
 		lbl.Text = text .. ": " .. v
-
 		cb(v)
 	end
 
@@ -641,7 +553,6 @@ local function Slider(pg, text, min, max, def, cb)
 			i.UserInputType == Enum.UserInputType.MouseMovement
 			or i.UserInputType == Enum.UserInputType.Touch
 		) then
-
 			update(i.Position.X)
 		end
 	end))
@@ -649,7 +560,6 @@ local function Slider(pg, text, min, max, def, cb)
 	track(UIS.InputEnded:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch then
-
 			dragging = false
 		end
 	end))
@@ -672,16 +582,10 @@ local function Button(pg, text, cb)
 	return b
 end
 
---==================================================
--- Helper
---==================================================
-
+-- Helpers
 local function getChar()
 	local c = LP.Character
-
-	if not c then
-		return
-	end
+	if not c then return end
 
 	return c,
 		c:FindFirstChildOfClass("Humanoid"),
@@ -694,8 +598,7 @@ local npcs = {}
 local function tryAddNPC(hum)
 	local m = hum.Parent
 
-	if m
-		and m:IsA("Model")
+	if m and m:IsA("Model")
 		and m ~= LP.Character
 		and not Players:GetPlayerFromCharacter(m) then
 
@@ -716,9 +619,7 @@ track(Workspace.DescendantAdded:Connect(function(d)
 end))
 
 local function alive(m)
-	if not m or not m.Parent then
-		return nil
-	end
+	if not m or not m.Parent then return nil end
 
 	local h = m:FindFirstChildOfClass("Humanoid")
 
@@ -729,10 +630,7 @@ local function alive(m)
 	return h
 end
 
---==================================================
--- วิ่งไว
---==================================================
-
+-- Movement
 local origWS
 
 local function setSpeed(v)
@@ -753,15 +651,9 @@ local function setSpeed(v)
 	end
 end
 
---==================================================
--- บิน
---==================================================
-
-local flyBV
-local flyBG
-
-local upHeld = false
-local downHeld = false
+-- Fly
+local flyBV, flyBG
+local upHeld, downHeld = false, false
 
 local flyPad = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0.5),
@@ -828,9 +720,7 @@ local function stopFly()
 	end
 
 	flyPad.Visible = false
-
-	upHeld = false
-	downHeld = false
+	upHeld, downHeld = false, false
 end
 
 local function startFly()
@@ -838,9 +728,7 @@ local function startFly()
 
 	local _, hum, root = getChar()
 
-	if not (hum and root) then
-		return
-	end
+	if not (hum and root) then return end
 
 	flyBV = new("BodyVelocity", {
 		MaxForce = Vector3.new(1e9, 1e9, 1e9),
@@ -872,16 +760,12 @@ track(UIS.JumpRequest:Connect(function()
 		local _, hum = getChar()
 
 		if hum then
-			hum:ChangeState(
-				Enum.HumanoidStateType.Jumping
-			)
+			hum:ChangeState(Enum.HumanoidStateType.Jumping)
 		end
 	end
 end))
---==================================================
--- ESP
---==================================================
 
+-- ESP
 local function clearESP(m)
 	local hl = m:FindFirstChild("_HubHL")
 
@@ -968,10 +852,7 @@ task.spawn(function()
 	end
 end)
 
---==================================================
 -- Aimlock
---==================================================
-
 local function updateFovVisible()
 	fovCircle.Visible = S.lockP or S.lockN
 end
@@ -988,46 +869,30 @@ RunService:BindToRenderStep(
 
 		local cam = Workspace.CurrentCamera
 
-		if not cam then
-			return
-		end
+		if not cam then return end
 
 		local center = cam.ViewportSize / 2
-
-		local best
-		local bestD
+		local best, bestD
 
 		local function consider(m)
-			if not alive(m) then
-				return
-			end
+			if not alive(m) then return end
 
 			local head = m:FindFirstChild("Head")
 
-			if not head then
-				return
-			end
+			if not head then return end
 
 			local p, onScreen =
-				cam:WorldToViewportPoint(
-					head.Position
-				)
+				cam:WorldToViewportPoint(head.Position)
 
-			if not onScreen then
-				return
-			end
+			if not onScreen then return end
 
 			local d =
-				(
-					Vector2.new(p.X, p.Y)
-					- center
-				).Magnitude
+				(Vector2.new(p.X, p.Y) - center).Magnitude
 
-			if d <= S.fov
-				and (not bestD or d < bestD) then
+			if d <= S.fov and
+				(not bestD or d < bestD) then
 
-				best = head
-				bestD = d
+				best, bestD = head, d
 			end
 		end
 
@@ -1056,7 +921,6 @@ RunService:BindToRenderStep(
 
 		if best then
 			setAimLine(best)
-
 			local goal =
 				CFrame.lookAt(
 					cam.CFrame.Position,
@@ -1071,10 +935,7 @@ RunService:BindToRenderStep(
 	end
 )
 
---==================================================
--- Hitbox NPC
---==================================================
-
+-- Hitbox
 local origSizes = {}
 
 task.spawn(function()
@@ -1086,27 +947,20 @@ task.spawn(function()
 				if alive(m) then
 
 					local r =
-						m:FindFirstChild(
-							"HumanoidRootPart"
-						)
+						m:FindFirstChild("HumanoidRootPart")
 
 					if r then
 
 						if not origSizes[r] then
-							origSizes[r] = {
-								Size = r.Size,
-								Transparency =
-									r.Transparency,
-								CanCollide =
-									r.CanCollide
-							}
+							origSizes[r] = r.Size
 						end
 
-						r.Size = Vector3.new(
-							S.hitSize,
-							S.hitSize,
-							S.hitSize
-						)
+						r.Size =
+							Vector3.new(
+								S.hitSize,
+								S.hitSize,
+								S.hitSize
+							)
 
 						r.Transparency = 0.7
 						r.CanCollide = false
@@ -1116,14 +970,11 @@ task.spawn(function()
 
 		else
 
-			for part, data in pairs(origSizes) do
+			for part, size in pairs(origSizes) do
 
 				if part and part.Parent then
-					part.Size = data.Size
-					part.Transparency =
-						data.Transparency
-					part.CanCollide =
-						data.CanCollide
+					part.Size = size
+					part.Transparency = 1
 				end
 
 				origSizes[part] = nil
@@ -1133,143 +984,7 @@ task.spawn(function()
 		task.wait(0.5)
 	end
 end)
-
---==================================================
--- Hitbox ผู้เล่น
---==================================================
-
-local playerOrigSizes = {}
-
-local function restorePlayerHitboxes()
-	for part, data in pairs(playerOrigSizes) do
-
-		if part and part.Parent then
-			part.Size = data.Size
-			part.Transparency = data.Transparency
-			part.CanCollide = data.CanCollide
-		end
-
-		playerOrigSizes[part] = nil
-	end
-end
-
-task.spawn(function()
-	while gui.Parent do
-
-		if S.playerHitbox then
-
-			for _, p in ipairs(Players:GetPlayers()) do
-
-				if p ~= LP
-					and p.Character
-					and alive(p.Character) then
-
-					local r =
-						p.Character:FindFirstChild(
-							"HumanoidRootPart"
-						)
-
-					if r then
-
-						if not playerOrigSizes[r] then
-							playerOrigSizes[r] = {
-								Size = r.Size,
-								Transparency =
-									r.Transparency,
-								CanCollide =
-									r.CanCollide
-							}
-						end
-
-						r.Size = Vector3.new(
-							S.playerHitSize,
-							S.playerHitSize,
-							S.playerHitSize
-						)
-
-						r.Transparency = 0.7
-						r.CanCollide = false
-					end
-				end
-			end
-
-		else
-			restorePlayerHitboxes()
-		end
-
-		task.wait(0.5)
-	end
-end)
-
---==================================================
--- ทะลุกำแพง / ระบบช่วยตรวจแนวยิง
---==================================================
-
-local wallbangRayParams = RaycastParams.new()
-
-wallbangRayParams.FilterType =
-	Enum.RaycastFilterType.Exclude
-
-local function getWallbangTarget(origin, targetPosition)
-	if not S.wallbang then
-		return nil
-	end
-
-	local character = LP.Character
-
-	wallbangRayParams.FilterDescendantsInstances = {
-		character
-	}
-
-	local direction =
-		targetPosition - origin
-
-	local result =
-		Workspace:Raycast(
-			origin,
-			direction,
-			wallbangRayParams
-		)
-
-	if not result then
-		return targetPosition
-	end
-
-	-- ระบบนี้ไม่สามารถบังคับเซิร์ฟเวอร์ของทุกเกม
-	-- ให้ยอมรับกระสุนทะลุกำแพงได้
-	-- แต่จะคืนตำแหน่งเป้าหมายให้ระบบฝั่ง client
-	-- ที่รองรับการยิงแบบ client-side
-
-	return targetPosition
-end
-
--- ตรวจว่ามีสิ่งกีดขวางระหว่างกล้องกับเป้าหรือไม่
-local function hasWallBetween(target)
-	local cam = Workspace.CurrentCamera
-
-	if not cam or not target then
-		return false
-	end
-
-	wallbangRayParams.FilterDescendantsInstances = {
-		LP.Character,
-		target.Parent
-	}
-
-	local result =
-		Workspace:Raycast(
-			cam.CFrame.Position,
-			target.Position - cam.CFrame.Position,
-			wallbangRayParams
-		)
-
-	return result ~= nil
-end
-
---==================================================
 -- Noclip
---==================================================
-
 local noclipConn
 
 local function setNoclip(v)
@@ -1281,20 +996,13 @@ local function setNoclip(v)
 	end
 
 	if v then
-
 		noclipConn = track(
 			RunService.Stepped:Connect(function()
 
 				local c = LP.Character
+				if not c then return end
 
-				if not c then
-					return
-				end
-
-				for _, part in ipairs(
-					c:GetDescendants()
-				) do
-
+				for _, part in ipairs(c:GetDescendants()) do
 					if part:IsA("BasePart") then
 						part.CanCollide = false
 					end
@@ -1304,46 +1012,30 @@ local function setNoclip(v)
 	end
 end
 
---==================================================
--- ล่องหน
---==================================================
-
+-- Invisible
 local savedTransparency = {}
 
 local function setInvisible(v)
 	S.invisible = v
 
 	local c = LP.Character
-
-	if not c then
-		return
-	end
+	if not c then return end
 
 	if v then
-
-		for _, obj in ipairs(
-			c:GetDescendants()
-		) do
-
+		for _, obj in ipairs(c:GetDescendants()) do
 			if obj:IsA("BasePart")
 				or obj:IsA("Decal")
 				or obj:IsA("Texture") then
 
 				if savedTransparency[obj] == nil then
-					savedTransparency[obj] =
-						obj.Transparency
+					savedTransparency[obj] = obj.Transparency
 				end
 
 				obj.Transparency = 1
 			end
 		end
-
 	else
-
-		for obj, tr in pairs(
-			savedTransparency
-		) do
-
+		for obj, tr in pairs(savedTransparency) do
 			if obj and obj.Parent then
 				obj.Transparency = tr
 			end
@@ -1353,10 +1045,7 @@ local function setInvisible(v)
 	end
 end
 
---==================================================
--- หยิบของครั้งเดียว
---==================================================
-
+-- Pickup one click
 local pickupConn
 
 local function setPickupOnce(v)
@@ -1367,77 +1056,49 @@ local function setPickupOnce(v)
 		pickupConn = nil
 	end
 
-	if not v then
-		return
-	end
+	if not v then return end
 
 	pickupConn = track(
-		Workspace.DescendantAdded:Connect(
-			function(obj)
-
-				if obj:IsA("ProximityPrompt") then
-					obj.HoldDuration = 0
-				end
+		Workspace.DescendantAdded:Connect(function(obj)
+			if obj:IsA("ProximityPrompt") then
+				obj.HoldDuration = 0
 			end
-		)
+		end)
 	)
 
-	for _, obj in ipairs(
-		Workspace:GetDescendants()
-	) do
-
+	for _, obj in ipairs(Workspace:GetDescendants()) do
 		if obj:IsA("ProximityPrompt") then
 			obj.HoldDuration = 0
 		end
 	end
 end
 
---==================================================
--- คลิกเพื่อวาร์ป
---==================================================
-
+-- Click teleport
 local function clickTeleport(pos)
 	local _, _, root = getChar()
-
-	if not root then
-		return
-	end
+	if not root then return end
 
 	local cam = Workspace.CurrentCamera
+	if not cam then return end
 
-	if not cam then
-		return
-	end
-
-	local ray =
-		cam:ViewportPointToRay(
-			pos.X,
-			pos.Y
-		)
+	local ray = cam:ViewportPointToRay(pos.X, pos.Y)
 
 	local params = RaycastParams.new()
-
-	params.FilterType =
-		Enum.RaycastFilterType.Exclude
-
+	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {
 		LP.Character
 	}
 
-	local hit =
-		Workspace:Raycast(
-			ray.Origin,
-			ray.Direction * 1000,
-			params
-		)
+	local hit = Workspace:Raycast(
+		ray.Origin,
+		ray.Direction * 1000,
+		params
+	)
 
 	if hit then
-
-		root.CFrame =
-			CFrame.new(
-				hit.Position
-					+ Vector3.new(0, 3, 0)
-			)
+		root.CFrame = CFrame.new(
+			hit.Position + Vector3.new(0, 3, 0)
+		)
 	end
 end
 
@@ -1452,472 +1113,35 @@ local function setClickTeleport(v)
 	end
 
 	if v then
-
 		clickTpConn = track(
-			UIS.InputBegan:Connect(
-				function(i, processed)
-
-					if processed then
-						return
-					end
-
-					if i.UserInputType ==
-						Enum.UserInputType.MouseButton1
-						or i.UserInputType ==
-						Enum.UserInputType.Touch then
-
-						clickTeleport(i.Position)
-					end
+			UIS.InputBegan:Connect(function(i, processed)
+				if processed then
+					return
 				end
-			)
+
+				if i.UserInputType == Enum.UserInputType.MouseButton1
+					or i.UserInputType == Enum.UserInputType.Touch then
+
+					clickTeleport(i.Position)
+				end
+			end)
 		)
 	end
 end
---==================================================
--- ซูมออกไกล
---==================================================
 
-local originalMinZoom
-local originalMaxZoom
-
-local function setZoom(v)
-	S.zoom = v
-
-	local player = LP
-
-	if not originalMinZoom then
-		originalMinZoom = player.CameraMinZoomDistance
-		originalMaxZoom = player.CameraMaxZoomDistance
-	end
-
-	if v then
-		player.CameraMinZoomDistance = 0.5
-		player.CameraMaxZoomDistance = S.zoomVal
-
-		notify(
-			"เปิดซูมไกล: "
-			.. tostring(S.zoomVal)
-		)
-	else
-		if originalMinZoom then
-			player.CameraMinZoomDistance =
-				originalMinZoom
-		end
-
-		if originalMaxZoom then
-			player.CameraMaxZoomDistance =
-				originalMaxZoom
-		end
-	end
-end
-
---==================================================
--- ถอดจิต / กล้องอิสระ
---==================================================
-
-local freecamCamera
-local freecamPosition
-local freecamYaw = 0
-local freecamPitch = 0
-
-local oldCameraType
-local oldCameraSubject
-
-local freecamKeys = {
-	W = false,
-	A = false,
-	S = false,
-	D = false,
-	Q = false,
-	E = false
-}
-
-local function startFreecam()
-	local cam = Workspace.CurrentCamera
-
-	if not cam then
-		return
-	end
-
-	oldCameraType = cam.CameraType
-	oldCameraSubject = cam.CameraSubject
-
-	freecamPosition = cam.CFrame.Position
-
-	local look = cam.CFrame.LookVector
-
-	freecamYaw =
-		math.atan2(
-			-look.X,
-			-look.Z
-		)
-
-	freecamPitch =
-		math.asin(
-			math.clamp(
-				look.Y,
-				-1,
-				1
-			)
-		)
-
-	cam.CameraType =
-		Enum.CameraType.Scriptable
-
-	freecamCamera = cam
-
-	notify(
-		"เปิดถอดจิตแล้ว"
-	)
-end
-
-local function stopFreecam()
-	local cam = Workspace.CurrentCamera
-
-	if cam then
-
-		cam.CameraType =
-			oldCameraType
-			or Enum.CameraType.Custom
-
-		if oldCameraSubject then
-			cam.CameraSubject =
-				oldCameraSubject
-		end
-	end
-
-	freecamCamera = nil
-	freecamPosition = nil
-
-	for k in pairs(freecamKeys) do
-		freecamKeys[k] = false
-	end
-
-	notify(
-		"ปิดถอดจิตแล้ว"
-	)
-end
-
-local function setFreecam(v)
-	S.freecam = v
-
-	if v then
-		startFreecam()
-	else
-		stopFreecam()
-	end
-end
-
--- ปุ่มควบคุมบนมือถือสำหรับถอดจิต
-local freecamPad = new("Frame", {
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, -18, 1, -18),
-	Size = UDim2.fromOffset(180, 170),
-	BackgroundTransparency = 1,
-	Visible = false
-}, overlay)
-
-local function freecamButton(
-	text,
-	x,
-	y,
-	w,
-	h,
-	key
-)
-
-	local b = new("TextButton", {
-		Position = UDim2.fromOffset(x, y),
-		Size = UDim2.fromOffset(w, h),
-		BackgroundColor3 = C.bg,
-		BackgroundTransparency = 0.15,
-		Text = text,
-		TextColor3 = C.text,
-		Font = FONT,
-		TextSize = 13,
-		AutoButtonColor = false
-	}, freecamPad)
-
-	corner(b, 10)
-	stroke(b, C.accent, 1.5)
-
-	b.InputBegan:Connect(function(i)
-
-		if i.UserInputType ==
-			Enum.UserInputType.MouseButton1
-			or i.UserInputType ==
-			Enum.UserInputType.Touch then
-
-			freecamKeys[key] = true
-		end
-	end)
-
-	b.InputEnded:Connect(function(i)
-
-		if i.UserInputType ==
-			Enum.UserInputType.MouseButton1
-			or i.UserInputType ==
-			Enum.UserInputType.Touch then
-
-			freecamKeys[key] = false
-		end
-	end)
-end
-
-freecamButton(
-	"ขึ้น",
-	60, 0,
-	60, 45,
-	"E"
-)
-
-freecamButton(
-	"ซ้าย",
-	0, 50,
-	60, 45,
-	"A"
-)
-
-freecamButton(
-	"ลง",
-	60, 50,
-	60, 45,
-	"Q"
-)
-
-freecamButton(
-	"ขวา",
-	120, 50,
-	60, 45,
-	"D"
-)
-
-freecamButton(
-	"เดินหน้า",
-	60, 100,
-	60, 45,
-	"W"
-)
-
-freecamButton(
-	"ถอยหลัง",
-	120, 100,
-	60, 45,
-	"S"
-)
-
-local freecamDrag = false
-local freecamLastPos
-
-overlay.InputBegan:Connect(function(i)
-
-	if not S.freecam then
-		return
-	end
-
-	if i.UserInputType ==
-		Enum.UserInputType.MouseButton2
-		or i.UserInputType ==
-		Enum.UserInputType.Touch then
-
-		freecamDrag = true
-		freecamLastPos = i.Position
-	end
-end)
-
-overlay.InputChanged:Connect(function(i)
-
-	if not S.freecam then
-		return
-	end
-
-	if not freecamDrag then
-		return
-	end
-
-	if i.UserInputType ==
-		Enum.UserInputType.MouseMovement
-		or i.UserInputType ==
-		Enum.UserInputType.Touch then
-
-		local delta =
-			i.Position - freecamLastPos
-
-		freecamLastPos = i.Position
-
-		freecamYaw -= delta.X * 0.004
-		freecamPitch -= delta.Y * 0.004
-
-		freecamPitch =
-			math.clamp(
-				freecamPitch,
-				-math.rad(89),
-				math.rad(89)
-			)
-	end
-end)
-
-overlay.InputEnded:Connect(function(i)
-
-	if i.UserInputType ==
-		Enum.UserInputType.MouseButton2
-		or i.UserInputType ==
-		Enum.UserInputType.Touch then
-
-		freecamDrag = false
-	end
-end)
-
---==================================================
--- อัปเดตกล้องถอดจิต
---==================================================
-
-track(
-	RunService.RenderStepped:Connect(
-		function(dt)
-
-			if not S.freecam
-				or not freecamCamera
-				or not freecamPosition then
-
-				freecamPad.Visible = false
-				return
-			end
-
-			freecamPad.Visible = true
-
-			local rotation =
-				CFrame.Angles(
-					0,
-					freecamYaw,
-					0
-				)
-				*
-				CFrame.Angles(
-					freecamPitch,
-					0,
-					0
-				)
-
-			local forward =
-				rotation.LookVector
-
-			local right =
-				rotation.RightVector
-
-			local up =
-				Vector3.new(0, 1, 0)
-
-			local move =
-				Vector3.zero
-
-			if freecamKeys.W then
-				move += forward
-			end
-
-			if freecamKeys.S then
-				move -= forward
-			end
-
-			if freecamKeys.D then
-				move += right
-			end
-
-			if freecamKeys.A then
-				move -= right
-			end
-
-			if freecamKeys.E then
-				move += up
-			end
-
-			if freecamKeys.Q then
-				move -= up
-			end
-
-			if move.Magnitude > 0 then
-				move = move.Unit
-			end
-
-			freecamPosition +=
-				move
-				* S.freecamSpeed
-				* dt
-
-			freecamCamera.CFrame =
-				CFrame.new(
-					freecamPosition
-				)
-				* rotation
-		end
-	)
-)
-
---==================================================
--- วาร์ปไปยังตำแหน่งที่ถอดจิตอยู่
---==================================================
-
-local function teleportToFreecam()
-	if not S.freecam then
-		notify(
-			"ต้องเปิดถอดจิตก่อน"
-		)
-		return
-	end
-
-	if not freecamPosition then
-		notify(
-			"ยังไม่มีตำแหน่งกล้อง"
-		)
-		return
-	end
-
-	local _, _, root = getChar()
-
-	if not root then
-		notify(
-			"ไม่พบตัวละคร"
-		)
-		return
-	end
-
-	root.CFrame =
-		CFrame.new(
-			freecamPosition
-				+ Vector3.new(0, 3, 0)
-		)
-
-	notify(
-		"วาร์ปไปจุดกล้องแล้ว"
-	)
-end
-
---==================================================
--- รายชื่อผู้เล่น
---==================================================
-
-local selectedPlr
-local listFrame
+-- Player list
+local selectedPlr, listFrame
 
 local function refreshPlayerList()
+	if not listFrame then return end
 
-	if not listFrame then
-		return
-	end
-
-	for _, c in ipairs(
-		listFrame:GetChildren()
-	) do
-
+	for _, c in ipairs(listFrame:GetChildren()) do
 		if c:IsA("TextButton") then
 			c:Destroy()
 		end
 	end
 
-	for _, p in ipairs(
-		Players:GetPlayers()
-	) do
-
+	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= LP then
 
 			local b = new("TextButton", {
@@ -1928,10 +1152,10 @@ local function refreshPlayerList()
 					or C.off,
 
 				Text =
-					p.DisplayName
-					.. " (@"
-					.. p.Name
-					.. ")",
+					p.DisplayName ..
+					" (@" ..
+					p.Name ..
+					")",
 
 				TextColor3 = C.text,
 				Font = FONT,
@@ -1940,93 +1164,62 @@ local function refreshPlayerList()
 
 			corner(b, 5)
 
-			b.MouseButton1Click:Connect(
-				function()
-					selectedPlr = p
-					refreshPlayerList()
-				end
-			)
+			b.MouseButton1Click:Connect(function()
+				selectedPlr = p
+				refreshPlayerList()
+			end)
 		end
 	end
 end
 
-track(
-	Players.PlayerAdded:Connect(
-		refreshPlayerList
-	)
-)
+track(Players.PlayerAdded:Connect(refreshPlayerList))
 
-track(
-	Players.PlayerRemoving:Connect(
-		function(p)
+track(Players.PlayerRemoving:Connect(function(p)
+	if selectedPlr == p then
+		selectedPlr = nil
+	end
 
-			if selectedPlr == p then
-				selectedPlr = nil
-			end
+	task.defer(refreshPlayerList)
+end))
 
-			task.defer(
-				refreshPlayerList
-			)
-		end
-	)
-)
-
---==================================================
--- วาร์ปไปผู้เล่น
---==================================================
-
+-- Warp selected
 local function warpToSelected()
-
 	if not (
 		selectedPlr
 		and selectedPlr.Character
 	) then
 
-		notify(
-			"ยังไม่ได้เลือกผู้เล่น"
-		)
-
+		notify("ยังไม่ได้เลือกผู้เล่น")
 		return
 	end
 
 	local tr =
 		selectedPlr.Character:
-		FindFirstChild(
-			"HumanoidRootPart"
-		)
+		FindFirstChild("HumanoidRootPart")
 
 	local _, _, root = getChar()
 
 	if tr and root then
 		root.CFrame =
-			tr.CFrame
-			* CFrame.new(0, 0, 3)
+			tr.CFrame *
+			CFrame.new(0, 0, 3)
 	end
 end
 
---==================================================
 -- ชนคนกระเด็น
---==================================================
-
 local function flingSelected()
-
 	if not (
 		selectedPlr
 		and selectedPlr.Character
 	) then
 
-		notify(
-			"ยังไม่ได้เลือกผู้เล่น"
-		)
-
+		notify("ยังไม่ได้เลือกผู้เล่น")
 		return
 	end
 
 	local targetRoot =
 		selectedPlr.Character:
-		FindFirstChild(
-			"HumanoidRootPart"
-		)
+		FindFirstChild("HumanoidRootPart")
 
 	local _, _, root = getChar()
 
@@ -2037,22 +1230,16 @@ local function flingSelected()
 	local original = root.CFrame
 
 	root.CFrame =
-		targetRoot.CFrame
-		* CFrame.new(0, 0, -2)
+		targetRoot.CFrame *
+		CFrame.new(0, 0, -2)
 
-	local bv =
-		Instance.new("BodyVelocity")
+	local bv = Instance.new("BodyVelocity")
 
 	bv.MaxForce =
-		Vector3.new(
-			1e9,
-			1e9,
-			1e9
-		)
+		Vector3.new(1e9, 1e9, 1e9)
 
 	bv.Velocity =
-		targetRoot.CFrame.LookVector
-		* 180
+		targetRoot.CFrame.LookVector * 180
 		+ Vector3.new(0, 35, 0)
 
 	bv.Parent = root
@@ -2066,18 +1253,11 @@ local function flingSelected()
 	end
 end
 
---==================================================
--- Anti-Lag
---==================================================
-
+-- Anti Lag
 local function antiLag()
-
-	notify(
-		"กำลังลดแลค..."
-	)
+	notify("กำลังลดแลค...")
 
 	task.spawn(function()
-
 		pcall(function()
 			settings().Rendering.QualityLevel =
 				Enum.QualityLevel.Level01
@@ -2085,19 +1265,13 @@ local function antiLag()
 
 		Lighting.GlobalShadows = false
 
-		for _, e in ipairs(
-			Lighting:GetChildren()
-		) do
-
+		for _, e in ipairs(Lighting:GetChildren()) do
 			if e:IsA("PostEffect") then
 				e.Enabled = false
 			end
 		end
 
-		for _, d in ipairs(
-			Workspace:GetDescendants()
-		) do
-
+		for _, d in ipairs(workspace:GetDescendants()) do
 			if d:IsA("ParticleEmitter")
 				or d:IsA("Trail") then
 
@@ -2105,63 +1279,38 @@ local function antiLag()
 
 			elseif d:IsA("BasePart") then
 
-				d.Material =
-					Enum.Material.Plastic
-
+				d.Material = Enum.Material.Plastic
 				d.CastShadow = false
 			end
 		end
 
-		notify(
-			"ลดแลคเสร็จแล้ว"
-		)
+		notify("ลดแลคเสร็จแล้ว")
 	end)
 end
 
---==================================================
 -- Server Hop
---==================================================
-
 local function serverHop()
+	notify("กำลังหาเซิร์ฟเวอร์...")
 
-	notify(
-		"กำลังหาเซิร์ฟเวอร์..."
-	)
-
-	local ok, res =
-		pcall(function()
-
-			return game:HttpGet(
-				(
-					"https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"
-				):format(
-					game.PlaceId
-				)
-			)
-		end)
+	local ok, res = pcall(function()
+		return game:HttpGet(
+			("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):
+			format(game.PlaceId)
+		)
+	end)
 
 	if not ok then
-
-		notify(
-			"ดึงรายชื่อเซิร์ฟไม่สำเร็จ"
-		)
-
+		notify("ดึงรายชื่อเซิร์ฟไม่สำเร็จ")
 		return
 	end
 
 	local ok2, data =
 		pcall(function()
-
-			return HttpService:
-				JSONDecode(res)
-
+			return HttpService:JSONDecode(res)
 		end)
 
 	if ok2 and data.data then
-
-		for _, s in ipairs(
-			data.data
-		) do
+		for _, s in ipairs(data.data) do
 
 			if s.id ~= game.JobId
 				and s.playing < s.maxPlayers then
@@ -2178,573 +1327,309 @@ local function serverHop()
 		end
 	end
 
-	notify(
-		"ไม่พบเซิร์ฟเวอร์"
-	)
+	notify("ไม่พบเซิร์ฟเวอร์")
 end
---==================================================
--- ระบบสถานะ
---==================================================
 
+-- Status system
 local statusLabels = {}
 local fpsValue = 0
 
 local function getCountry()
-
-	local ok, country =
-		pcall(function()
-
-			return LocalizationService:
-				GetCountryRegionForPlayerAsync(
-					LP
-				)
-
-		end)
+	local ok, country = pcall(function()
+		return LocalizationService:
+			GetCountryRegionForPlayerAsync(LP)
+	end)
 
 	if ok and country then
 		return country
 	end
 
-	return "ไม่ทราบ"
+	return "Unknown"
 end
 
 local function getCreator()
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(
+			game.PlaceId,
+			Enum.InfoType.Asset
+		)
+	end)
 
-	local ok, info =
-		pcall(function()
-
-			return MarketplaceService:
-				GetProductInfo(
-					game.PlaceId,
-					Enum.InfoType.Asset
-				)
-
-		end)
-
-	if ok
-		and info
-		and info.Creator then
-
-		return info.Creator.Name
-			or "ไม่ทราบ"
+	if ok and info and info.Creator then
+		return info.Creator.Name or "Unknown"
 	end
 
-	return "ไม่ทราบ"
+	local ok2, info2 = pcall(function()
+		return MarketplaceService:GetProductInfo(game.PlaceId)
+	end)
+
+	if ok2 and info2 and info2.Creator then
+		return info2.Creator.Name or "Unknown"
+	end
+
+	return "Unknown"
 end
 
 local function getPing()
-
-	local ok, value =
-		pcall(function()
-
-			return Stats.Network:
-				ServerStatsItem[
-					"Data Ping"
-				]:GetValue()
-
-		end)
+	local ok, value = pcall(function()
+		return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+	end)
 
 	if ok and value then
-		return math.floor(
-			value + 0.5
-		) .. " ms"
+		return math.floor(value + 0.5) .. " ms"
 	end
 
 	return "-- ms"
 end
 
 local function getStatusText()
-
 	return {
-		FE = "เปิดใช้งาน",
-		JobID =
-			game.JobId ~= ""
-			and game.JobId
-			or "Studio",
-
-		PlaceID =
-			tostring(
-				game.PlaceId
-			),
-
+		FE = "Enabled",
+		JobID = game.JobId ~= "" and game.JobId or "Studio",
+		PlaceID = tostring(game.PlaceId),
 		Country = getCountry(),
-
-		UserID =
-			tostring(
-				LP.UserId
-			),
-
-		MapName =
-			Workspace.Name,
-
-		GameName =
-			game.Name,
-
-		Creator =
-			getCreator(),
-
-		FPS =
-			tostring(
-				math.floor(
-					fpsValue + 0.5
-				)
-			),
-
-		Ping =
-			getPing()
+		UserID = tostring(LP.UserId),
+		MapName = Workspace.Name,
+		GameName = game.Name,
+		Creator = getCreator(),
+		FPS = tostring(math.floor(fpsValue + 0.5)),
+		Ping = getPing()
 	}
 end
 
-local function statusRow(
-	parent,
-	title,
-	key
-)
-
+local function statusRow(parent, title, key)
 	local row = new("Frame", {
-		Size = UDim2.new(
-			1,
-			-10,
-			0,
-			38
-		),
+		Size = UDim2.new(1, -10, 0, 38),
 		BackgroundColor3 = C.row
 	}, parent)
 
 	corner(row, 7)
 
 	new("TextLabel", {
-		Size = UDim2.new(
-			0.38,
-			0,
-			1,
-			0
-		),
-
-		Position =
-			UDim2.fromOffset(
-				12,
-				0
-			),
-
+		Size = UDim2.new(0.38, 0, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
 		BackgroundTransparency = 1,
-
 		Text = title,
-
-		TextColor3 =
-			Color3.fromRGB(
-				150,
-				165,
-				205
-			),
-
-		Font =
-			Enum.Font.GothamMedium,
-
+		TextColor3 = Color3.fromRGB(150, 165, 205),
+		Font = Enum.Font.GothamMedium,
 		TextSize = 12,
-
-		TextXAlignment =
-			Enum.TextXAlignment.Left
-
+		TextXAlignment = Enum.TextXAlignment.Left
 	}, row)
 
 	local value = new("TextLabel", {
-
-		Size =
-			UDim2.new(
-				0.57,
-				-5,
-				1,
-				0
-			),
-
-		Position =
-			UDim2.new(
-				0.38,
-				0,
-				0,
-				0
-			),
-
+		Size = UDim2.new(0.57, -5, 1, 0),
+		Position = UDim2.new(0.38, 0, 0, 0),
 		BackgroundTransparency = 1,
-
 		Text = "--",
-
 		TextColor3 = C.text,
-
 		Font = FONT,
-
 		TextSize = 12,
-
-		TextXAlignment =
-			Enum.TextXAlignment.Right,
-
-		TextTruncate =
-			Enum.TextTruncate.AtEnd
-
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd
 	}, row)
 
 	statusLabels[key] = value
 end
 
---==================================================
+local statusUpdater
+
 -- Heartbeat
---==================================================
-
 track(
-	RunService.Heartbeat:Connect(
-		function(dt)
+	RunService.Heartbeat:Connect(function(dt)
 
-			if dt > 0 then
-				fpsValue =
-					1 / dt
-			end
+		if dt > 0 then
+			fpsValue =
+				1 / dt
+		end
 
-			local _, hum, root =
-				getChar()
+		local _, hum, root = getChar()
 
-			if S.speed and hum then
-				hum.WalkSpeed =
-					S.speedVal
-			end
+		if S.speed and hum then
+			hum.WalkSpeed = S.speedVal
+		end
 
-			if S.fly
-				and flyBV
-				and flyBG
-				and root
-				and hum then
+		if S.fly
+			and flyBV
+			and flyBG
+			and root
+			and hum then
 
-				local cam =
-					Workspace.CurrentCamera
+			local cam = Workspace.CurrentCamera
 
-				if cam then
+			if cam then
 
-					local look =
-						cam.CFrame.LookVector
+				local look =
+					cam.CFrame.LookVector
 
-					local right =
-						cam.CFrame.RightVector
+				local right =
+					cam.CFrame.RightVector
 
-					local flatLook =
-						Vector3.new(
-							look.X,
-							0,
-							look.Z
-						)
+				local flatLook =
+					Vector3.new(
+						look.X,
+						0,
+						look.Z
+					).Unit
 
-					local flatRight =
-						Vector3.new(
-							right.X,
-							0,
-							right.Z
-						)
+				local flatRight =
+					Vector3.new(
+						right.X,
+						0,
+						right.Z
+					).Unit
 
-					if flatLook.Magnitude > 0 then
-						flatLook =
-							flatLook.Unit
-					end
+				local md =
+					hum.MoveDirection
 
-					if flatRight.Magnitude > 0 then
-						flatRight =
-							flatRight.Unit
-					end
-
-					local md =
-						hum.MoveDirection
-
-					local vel =
-						(
-							look
-								* md:Dot(
-									flatLook
-								)
-							+
-							right
-								* md:Dot(
-									flatRight
-								)
-						)
-						* S.flyVal
-
-					if upHeld then
-						vel +=
-							Vector3.new(
-								0,
-								S.flyVal,
-								0
-							)
-					end
-
-					if downHeld then
-						vel -=
-							Vector3.new(
-								0,
-								S.flyVal,
-								0
-							)
-					end
-
-					flyBV.Velocity = vel
-					flyBG.CFrame =
-						cam.CFrame
-				end
-			end
-
-			if S.car and hum then
-
-				local seat =
-					hum.SeatPart
-
-				if seat
-					and seat:IsA(
-						"VehicleSeat"
+				local vel =
+					(
+						look * md:Dot(flatLook)
+						+
+						right * md:Dot(flatRight)
 					)
-					and seat.Throttle ~= 0 then
+					* S.flyVal
 
-					local r =
-						seat.AssemblyRootPart
-						or seat
-
-					r.AssemblyLinearVelocity +=
-						seat.CFrame.LookVector
-						* seat.Throttle
-						* S.carVal
-						* dt
+				if upHeld then
+					vel +=
+						Vector3.new(
+							0,
+							S.flyVal,
+							0
+						)
 				end
+
+				if downHeld then
+					vel -=
+						Vector3.new(
+							0,
+							S.flyVal,
+							0
+						)
+				end
+
+				flyBV.Velocity = vel
+				flyBG.CFrame = cam.CFrame
 			end
 		end
-	)
-)
 
---==================================================
--- แสง
---==================================================
+		if S.car and hum then
 
-track(
-	RunService.RenderStepped:Connect(
-		function()
+			local seat = hum.SeatPart
 
-			if S.light then
+			if seat
+				and seat:IsA("VehicleSeat")
+				and seat.Throttle ~= 0 then
 
-				Lighting.Brightness =
-					S.lightVal
+				local r =
+					seat.AssemblyRootPart
+					or seat
 
-				Lighting.ClockTime = 14
-
-				Lighting.GlobalShadows =
-					false
-
-				Lighting.Ambient =
-					Color3.fromRGB(
-						150,
-						150,
-						150
-					)
+				r.AssemblyLinearVelocity +=
+					seat.CFrame.LookVector
+					* seat.Throttle
+					* S.carVal
+					* dt
 			end
 		end
-	)
+	end)
 )
 
---==================================================
--- สร้างหน้า
---==================================================
+track(
+	RunService.RenderStepped:Connect(function()
 
+		if S.light then
+
+			Lighting.Brightness =
+				S.lightVal
+
+			Lighting.ClockTime = 14
+			Lighting.GlobalShadows = false
+
+			Lighting.Ambient =
+				Color3.fromRGB(
+					150,
+					150,
+					150
+				)
+		end
+	end)
+)
+
+-- BUILD PAGES
+
+-- STATUS
 local pStatus = Page("สถานะ")
 
 local statusHeader = new("Frame", {
-	Size = UDim2.new(
-		1,
-		-10,
-		0,
-		68
-	),
+	Size = UDim2.new(1, -10, 0, 68),
 	BackgroundColor3 = C.row
 }, pStatus)
 
 corner(statusHeader, 8)
 
 new("TextLabel", {
-	Size = UDim2.new(
-		1,
-		-24,
-		0,
-		26
-	),
-
-	Position =
-		UDim2.fromOffset(
-			12,
-			7
-		),
-
+	Size = UDim2.new(1, -24, 0, 26),
+	Position = UDim2.fromOffset(12, 7),
 	BackgroundTransparency = 1,
-
-	Text =
-		"SERVER DASHBOARD",
-
+	Text = "SERVER DASHBOARD",
 	TextColor3 = C.text,
-
 	Font = FONT,
-
 	TextSize = 17,
-
-	TextXAlignment =
-		Enum.TextXAlignment.Left
-
+	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
 new("TextLabel", {
-	Size = UDim2.new(
-		1,
-		-24,
-		0,
-		20
-	),
-
-	Position =
-		UDim2.fromOffset(
-			12,
-			36
-		),
-
+	Size = UDim2.new(1, -24, 0, 20),
+	Position = UDim2.fromOffset(12, 36),
 	BackgroundTransparency = 1,
-
-	Text =
-		"ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB v3.4",
-
-	TextColor3 =
-		Color3.fromRGB(
-			145,
-			160,
-			200
-		),
-
-	Font =
-		Enum.Font.GothamMedium,
-
+	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB v3.2",
+	TextColor3 = Color3.fromRGB(145, 160, 200),
+	Font = Enum.Font.GothamMedium,
 	TextSize = 11,
-
-	TextXAlignment =
-		Enum.TextXAlignment.Left
-
+	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
-Label(
-	pStatus,
-	"เซิร์ฟเวอร์"
-)
+Label(pStatus, "SERVER")
 
-statusRow(
-	pStatus,
-	"ระบบ FE",
-	"FE"
-)
+statusRow(pStatus, "FE", "FE")
+statusRow(pStatus, "Job ID", "JobID")
+statusRow(pStatus, "Place ID", "PlaceID")
+statusRow(pStatus, "Country", "Country")
+statusRow(pStatus, "Map Name", "MapName")
+statusRow(pStatus, "Game", "GameName")
+statusRow(pStatus, "Creator", "Creator")
 
-statusRow(
-	pStatus,
-	"Job ID",
-	"JobID"
-)
+Label(pStatus, "PLAYER")
 
-statusRow(
-	pStatus,
-	"Place ID",
-	"PlaceID"
-)
-
-statusRow(
-	pStatus,
-	"ประเทศ",
-	"Country"
-)
-
-statusRow(
-	pStatus,
-	"ชื่อแมพ",
-	"MapName"
-)
-
-statusRow(
-	pStatus,
-	"เกม",
-	"GameName"
-)
-
-statusRow(
-	pStatus,
-	"ผู้สร้าง",
-	"Creator"
-)
-
-Label(
-	pStatus,
-	"ผู้เล่น"
-)
-
-statusRow(
-	pStatus,
-	"User ID",
-	"UserID"
-)
-
-statusRow(
-	pStatus,
-	"FPS",
-	"FPS"
-)
-
-statusRow(
-	pStatus,
-	"Ping",
-	"Ping"
-)
+statusRow(pStatus, "User ID", "UserID")
+statusRow(pStatus, "FPS", "FPS")
+statusRow(pStatus, "Ping", "Ping")
 
 local function updateStatus()
-
-	if not pStatus
-		or not pStatus.Parent then
+	if not pStatus or not pStatus.Parent then
 		return
 	end
 
-	local data =
-		getStatusText()
+	local data = getStatusText()
 
-	for key, label in pairs(
-		statusLabels
-	) do
-
-		if label
-			and label.Parent then
-
-			label.Text =
-				tostring(
-					data[key]
-					or "--"
-				)
+	for key, label in pairs(statusLabels) do
+		if label and label.Parent then
+			label.Text = tostring(data[key] or "--")
 		end
 	end
 end
 
-task.spawn(function()
-
+statusUpdater = task.spawn(function()
 	while gui.Parent do
-
 		updateStatus()
-
 		task.wait(1)
 	end
 end)
 
---==================================================
--- หน้า หลัก
---==================================================
 
 local pMain = Page("หลัก")
 
-Label(
-	pMain,
-	"การเคลื่อนที่"
-)
+Label(pMain, "การเคลื่อนที่")
 
 Toggle(
 	pMain,
@@ -2765,7 +1650,7 @@ Slider(
 
 Toggle(
 	pMain,
-	"บิน มีปุ่มขึ้น/ลง",
+	"บิน (มีปุ่มขึ้น/ลง ด้านขวา)",
 	setFly
 )
 
@@ -2790,64 +1675,11 @@ Toggle(
 
 Toggle(
 	pMain,
-	"ทะลุกำแพงตัวละคร",
+	"ทะลุกำแพง",
 	setNoclip
 )
 
-Label(
-	pMain,
-	"ซูมและถอดจิต"
-)
-
-Toggle(
-	pMain,
-	"ซูมออกไกล",
-	setZoom
-)
-
-Slider(
-	pMain,
-	"ระยะซูม",
-	50,
-	2000,
-	S.zoomVal,
-	function(v)
-
-		S.zoomVal = v
-
-		if S.zoom then
-			LP.CameraMaxZoomDistance = v
-		end
-	end
-)
-
-Toggle(
-	pMain,
-	"ถอดจิต / กล้องอิสระ",
-	setFreecam
-)
-
-Slider(
-	pMain,
-	"ความเร็วถอดจิต",
-	10,
-	300,
-	S.freecamSpeed,
-	function(v)
-		S.freecamSpeed = v
-	end
-)
-
-Button(
-	pMain,
-	"วาร์ปไปจุดที่ถอดจิตอยู่",
-	teleportToFreecam
-)
-
---==================================================
--- หน้า มองเห็น
---==================================================
-
+-- มองเห็น
 local pVis = Page("มองเห็น")
 
 Label(
@@ -2859,19 +1691,12 @@ Toggle(
 	pVis,
 	"มองเห็นผู้เล่น",
 	function(v)
-
 		S.espP = v
 
 		if not v then
-
-			for _, p in ipairs(
-				Players:GetPlayers()
-			) do
-
+			for _, p in ipairs(Players:GetPlayers()) do
 				if p.Character then
-					clearESP(
-						p.Character
-					)
+					clearESP(p.Character)
 				end
 			end
 		end
@@ -2882,11 +1707,9 @@ Toggle(
 	pVis,
 	"มองเห็น NPC",
 	function(v)
-
 		S.espN = v
 
 		if not v then
-
 			for m in pairs(npcs) do
 				clearESP(m)
 			end
@@ -2896,33 +1719,27 @@ Toggle(
 
 Toggle(
 	pVis,
-	"เส้นไปยังหัวที่ล็อค",
+	"ESP เส้น → หัวที่ล็อค",
 	function(v)
-
 		S.espLine = v
-
 		if not v then
 			hideAimLine()
 		end
 	end
 )
 
---==================================================
--- หน้า ล็อคเป้า
---==================================================
-
+-- Aim
 local pAim = Page("ล็อคเป้า")
 
 Label(
 	pAim,
-	"ระบบล็อคเป้า"
+	"ระบบ Aimlock"
 )
 
 Toggle(
 	pAim,
 	"ล็อคหัวผู้เล่น",
 	function(v)
-
 		S.lockP = v
 		updateFovVisible()
 	end
@@ -2932,9 +1749,8 @@ Toggle(
 	pAim,
 	"ล็อคหัว NPC / บอท",
 	function(v)
-
 		S.lockN = v
-		updateFovVisible()
+	updateFovVisible()
 	end
 )
 
@@ -2942,7 +1758,6 @@ Toggle(
 	pAim,
 	"ไม่ล็อคทีมเดียวกัน",
 	function(v)
-
 		S.teamCheck = v
 	end,
 	true
@@ -2973,7 +1788,7 @@ Label(
 
 Toggle(
 	pAim,
-	"ขยาย Hitbox NPC",
+	"ขยายฮิตบ็อกซ์ NPC",
 	function(v)
 		S.hitbox = v
 	end
@@ -2981,7 +1796,7 @@ Toggle(
 
 Slider(
 	pAim,
-	"ขนาด Hitbox NPC",
+	"ขนาดฮิตบ็อกซ์",
 	2,
 	30,
 	S.hitSize,
@@ -2992,47 +1807,14 @@ Slider(
 
 Toggle(
 	pAim,
-	"ขยาย Hitbox ผู้เล่น",
-	function(v)
-
-		S.playerHitbox = v
-
-		if not v then
-			restorePlayerHitboxes()
-		end
-	end
-)
-
-Slider(
-	pAim,
-	"ขนาด Hitbox ผู้เล่น",
-	2,
-	30,
-	S.playerHitSize,
-	function(v)
-		S.playerHitSize = v
-	end
-)
-
-Toggle(
-	pAim,
 	"ยิงทะลุกำแพง",
 	function(v)
-
 		S.wallbang = v
-
-		notify(
-			v
-			and "เปิดระบบช่วยยิงทะลุกำแพง"
-			or "ปิดระบบยิงทะลุกำแพง"
-		)
+		notify(v and "เปิดยิงทะลุกำแพง" or "ปิดยิงทะลุกำแพง")
 	end
 )
 
---==================================================
--- หน้า วาร์ป
---==================================================
-
+-- Warp
 local pTp = Page("วาร์ป")
 
 Label(
@@ -3041,47 +1823,23 @@ Label(
 )
 
 listFrame = new("ScrollingFrame", {
-
-	Size =
-		UDim2.new(
-			1,
-			-6,
-			0,
-			100
-		),
-
+	Size = UDim2.new(1, -6, 0, 100),
 	BackgroundColor3 = C.row,
-
 	BorderSizePixel = 0,
-
 	ScrollBarThickness = 3,
-
-	AutomaticCanvasSize =
-		Enum.AutomaticSize.Y,
-
-	CanvasSize =
-		UDim2.new()
-
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
 }, pTp)
 
-corner(
-	listFrame,
-	6
-)
+corner(listFrame, 6)
 
 new("UIListLayout", {
-	Padding = UDim.new(
-		0,
-		4
-	)
+	Padding = UDim.new(0, 4)
 }, listFrame)
 
 new("UIPadding", {
-	PaddingTop =
-		UDim.new(0, 4),
-
-	PaddingLeft =
-		UDim.new(0, 4)
+	PaddingTop = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4)
 }, listFrame)
 
 Button(
@@ -3098,7 +1856,7 @@ Button(
 
 Button(
 	pTp,
-	"ชนคนกระเด็น แล้วกลับจุดเดิม",
+	"ชนคนกระเด็น (แล้วกลับจุดเดิม)",
 	flingSelected
 )
 
@@ -3110,10 +1868,7 @@ Toggle(
 
 refreshPlayerList()
 
---==================================================
--- หน้า เครื่องมือ
---==================================================
-
+-- เครื่องมือ
 local pTool = Page("เครื่องมือ")
 
 Label(
@@ -3173,7 +1928,7 @@ Slider(
 
 Button(
 	pTool,
-	"ลดอาการแลค",
+	"ลดอาการแลค (Anti-Lag)",
 	antiLag
 )
 
@@ -3183,26 +1938,17 @@ Button(
 	serverHop
 )
 
---==================================================
--- เริ่มต้น
---==================================================
 
+-- Initial tab
 selectTab("สถานะ")
 
---==================================================
 -- Cleanup
---==================================================
-
 local function cleanup()
 
 	setSpeed(false)
 	setFly(false)
 
 	S.hitbox = false
-	S.playerHitbox = false
-
-	restorePlayerHitboxes()
-
 	hideAimLine()
 
 	setNoclip(false)
@@ -3210,32 +1956,13 @@ local function cleanup()
 	setClickTeleport(false)
 	setPickupOnce(false)
 
-	if S.freecam then
-		S.freecam = false
-		stopFreecam()
-	end
-
-	if originalMinZoom then
-		LP.CameraMinZoomDistance =
-			originalMinZoom
-	end
-
-	if originalMaxZoom then
-		LP.CameraMaxZoomDistance =
-			originalMaxZoom
-	end
-
 	pcall(function()
-
-		RunService:
-			UnbindFromRenderStep(
-				"KTHubAim"
-			)
-
+		RunService:UnbindFromRenderStep(
+			"KTHubAim"
+		)
 	end)
 
 	for _, c in ipairs(conns) do
-
 		pcall(function()
 			c:Disconnect()
 		end)
@@ -3250,13 +1977,10 @@ local function cleanup()
 	end
 end
 
-env.__KTHubCleanup =
-	cleanup
+env.__KTHubCleanup = cleanup
 
-closeBtn.MouseButton1Click:Connect(
-	cleanup
-)
+closeBtn.MouseButton1Click:Connect(cleanup)
 
 notify(
-	"ขอโทษ HUB v3.4 โหลดเสร็จแล้ว!"
+	"ขอโทษ HUB v3.2 โหลดเสร็จเรียบร้อย!"
 )
