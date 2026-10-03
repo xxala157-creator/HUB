@@ -1009,7 +1009,6 @@ local function setInvisible(on)
 		table.clear(savedTransparency)
 	end
 end
-
 --// CLICK TELEPORT
 local mouse
 
@@ -1208,7 +1207,7 @@ track(UIS.InputChanged:Connect(function(input)
 				freecamRot.Y
 			)
 	end
-end)
+end))
 
 --// FREECAM WARP
 local function warpToFreecam()
@@ -1948,7 +1947,6 @@ fovCircle.Size =
 	)
 
 updateStatus()
-
 --// MAIN RUNTIME LOOP
 track(RunService.RenderStepped:Connect(function(dt)
 	-- Speed
