@@ -31,6 +31,9 @@ local S = {
 	espP = false, espN = false,
 	lockP = false, lockN = false, teamCheck = true, fov = 150,
 	hitbox = false, hitSize = 10,
+	hitboxP = false, hitSizeP = 8, hitTeam = true,
+	zoom = false, zoomVal = 60,
+	spirit = false, spiritSpeed = 60,
 	light = false, lightVal = 3,
 	car = false, carVal = 100,
 
@@ -39,13 +42,10 @@ local S = {
 	clickTp = false,
 	pickupOnce = false,
 	espLine = false,
-	zoom = false, zoomVal = 80,
-	spec = false, specSpeed = 60,
-	hitboxP = false, hitSizeP = 10,
 }
 
 local C = {
-	bg = Color3.fromRGB(10, 14, 38),
+	bg = Color3.fromRGB(12, 16, 42),
 	panel = Color3.fromRGB(15, 21, 52),
 	row = Color3.fromRGB(20, 28, 66),
 	accent = Color3.fromRGB(30, 150, 255),
@@ -234,8 +234,12 @@ local main = new("Frame", {
 	BorderSizePixel = 0
 }, gui)
 
-corner(main, 8)
-stroke(main, C.accent, 2)
+corner(main, 14)
+stroke(main, C.accent, 1.5)
+new("UIGradient", {
+	Color = ColorSequence.new(Color3.fromRGB(14, 20, 52), Color3.fromRGB(8, 10, 28)),
+	Rotation = 90
+}, main)
 
 local header = new("Frame", {
 	Size = UDim2.new(1, 0, 0, 36),
@@ -324,7 +328,7 @@ local sidebar = new("Frame", {
 	BackgroundColor3 = C.panel
 }, main)
 
-corner(sidebar, 6)
+corner(sidebar, 10)
 
 new("UIListLayout", {
 	Padding = UDim.new(0, 4),
@@ -341,7 +345,7 @@ local content = new("Frame", {
 	BackgroundColor3 = C.panel
 }, main)
 
-corner(content, 6)
+corner(content, 10)
 
 local pages, tabBtns = {}, {}
 
@@ -366,7 +370,7 @@ local function Page(name)
 		AutoButtonColor = false
 	}, sidebar)
 
-	corner(btn, 5)
+	corner(btn, 8)
 
 	local pg = new("ScrollingFrame", {
 		Size = UDim2.new(1, -10, 1, -10),
@@ -411,7 +415,7 @@ local function Toggle(pg, text, cb, default)
 		BackgroundColor3 = C.row
 	}, pg)
 
-	corner(row, 6)
+	corner(row, 10)
 
 	new("TextLabel", {
 		Size = UDim2.new(1, -60, 1, 0),
@@ -486,7 +490,7 @@ local function Slider(pg, text, min, max, def, cb)
 		BackgroundColor3 = C.row
 	}, pg)
 
-	corner(row, 6)
+	corner(row, 10)
 
 	local lbl = new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 18),
@@ -654,7 +658,7 @@ local function setSpeed(v)
 end
 
 -- Fly
-local flyBV, flyBG
+local flyBV, flyBG, flyAtt
 local upHeld, downHeld = false, false
 
 local flyPad = new("Frame", {
@@ -715,13 +719,18 @@ local function stopFly()
 		flyBG = nil
 	end
 
+	if flyAtt then
+		flyAtt:Destroy()
+		flyAtt = nil
+	end
+
 	local _, hum = getChar()
 
 	if hum then
 		hum.PlatformStand = false
 	end
 
-	flyPad.Visible = (S.spec == true)
+	flyPad.Visible = false
 	upHeld, downHeld = false, false
 end
 
@@ -732,14 +741,21 @@ local function startFly()
 
 	if not (hum and root) then return end
 
-	flyBV = new("BodyVelocity", {
-		MaxForce = Vector3.new(1e9, 1e9, 1e9),
-		Velocity = Vector3.zero
+	flyAtt = new("Attachment", {Name = "_HubFlyAtt"}, root)
+
+	flyBV = new("LinearVelocity", {
+		Attachment0 = flyAtt,
+		MaxForce = math.huge,
+		VelocityConstraintMode = Enum.VelocityConstraintMode.Vector,
+		RelativeTo = Enum.ActuatorRelativeTo.World,
+		VectorVelocity = Vector3.zero
 	}, root)
 
-	flyBG = new("BodyGyro", {
-		MaxTorque = Vector3.new(1e9, 1e9, 1e9),
-		P = 9e4,
+	flyBG = new("AlignOrientation", {
+		Attachment0 = flyAtt,
+		Mode = Enum.OrientationAlignmentMode.OneAttachment,
+		MaxTorque = math.huge,
+		Responsiveness = 200,
 		CFrame = root.CFrame
 	}, root)
 
@@ -937,341 +953,77 @@ RunService:BindToRenderStep(
 	end
 )
 
--- Hitbox
+-- Hitbox (NPC + Player)
 local origSizes = {}
+
+local function growPart(r, size)
+	if not origSizes[r] then
+		origSizes[r] = {size = r.Size, tr = r.Transparency, cc = r.CanCollide}
+	end
+
+	r.Size = Vector3.new(size, size, size)
+	r.Transparency = 0.7
+	r.CanCollide = false
+end
+
+local function restoreHitboxes(onlyPlayers)
+	for part, o in pairs(origSizes) do
+		if part and part.Parent then
+			part.Size = o.size
+			part.Transparency = o.tr
+			part.CanCollide = o.cc
+		end
+
+		origSizes[part] = nil
+	end
+end
 
 task.spawn(function()
 	while gui.Parent do
+		local touched = {}
 
 		if S.hitbox then
-
 			for m in pairs(npcs) do
 				if alive(m) then
-
-					local r =
-						m:FindFirstChild("HumanoidRootPart")
-
+					local r = m:FindFirstChild("HumanoidRootPart")
 					if r then
-
-						if not origSizes[r] then
-							origSizes[r] = r.Size
-						end
-
-						r.Size =
-							Vector3.new(
-								S.hitSize,
-								S.hitSize,
-								S.hitSize
-							)
-
-						r.Transparency = 0.7
-						r.CanCollide = false
+						growPart(r, S.hitSize)
+						touched[r] = true
 					end
 				end
 			end
+		end
 
-		else
-
-			for part, size in pairs(origSizes) do
-
-				if part and part.Parent then
-					part.Size = size
-					part.Transparency = 1
+		if S.hitboxP then
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LP and p.Character and alive(p.Character) then
+					local sameTeam = S.hitTeam and LP.Team ~= nil and p.Team == LP.Team
+					if not sameTeam then
+						local r = p.Character:FindFirstChild("HumanoidRootPart")
+						if r then
+							growPart(r, S.hitSizeP)
+							touched[r] = true
+						end
+					end
 				end
+			end
+		end
 
+		-- restore anything no longer enabled
+		for part, o in pairs(origSizes) do
+			if not touched[part] then
+				if part and part.Parent then
+					part.Size = o.size
+					part.Transparency = o.tr
+					part.CanCollide = o.cc
+				end
 				origSizes[part] = nil
 			end
 		end
 
-		task.wait(0.5)
+		task.wait(0.4)
 	end
 end)
--- Player Hitbox (v3.4)
-local origSizesP = {}
-
-local function restoreP()
-	for part, d in pairs(origSizesP) do
-		if part and part.Parent then
-			part.Size = d.size
-			part.Transparency = d.tr
-			part.CanCollide = d.cc
-		end
-
-		origSizesP[part] = nil
-	end
-end
-
-task.spawn(function()
-	while gui.Parent do
-		if S.hitboxP then
-			for _, p in ipairs(Players:GetPlayers()) do
-				if p ~= LP and p.Character and alive(p.Character) then
-					local r = p.Character:FindFirstChild("HumanoidRootPart")
-
-					local sameTeam =
-						S.teamCheck
-						and LP.Team ~= nil
-						and p.Team == LP.Team
-
-					if r then
-						if sameTeam then
-							local d = origSizesP[r]
-
-							if d then
-								r.Size = d.size
-								r.Transparency = d.tr
-								r.CanCollide = d.cc
-								origSizesP[r] = nil
-							end
-						else
-							if not origSizesP[r] then
-								origSizesP[r] = {
-									size = r.Size,
-									tr = r.Transparency,
-									cc = r.CanCollide
-								}
-							end
-
-							r.Size = Vector3.new(S.hitSizeP, S.hitSizeP, S.hitSizeP)
-							r.Transparency = 0.7
-							r.CanCollide = false
-						end
-					end
-				end
-			end
-		else
-			restoreP()
-		end
-
-		task.wait(0.5)
-	end
-end)
-
--- Zoom out (v3.4)
-local origZoomMin, origZoomMax, origCamMode
-
-local function applyZoom()
-	if not S.zoom then return end
-
-	if LP.CameraMaxZoomDistance ~= S.zoomVal
-		or LP.CameraMinZoomDistance ~= S.zoomVal then
-
-		pcall(function()
-			LP.CameraMinZoomDistance = 0.5
-			LP.CameraMaxZoomDistance = S.zoomVal
-			LP.CameraMinZoomDistance = S.zoomVal
-		end)
-	end
-
-	if LP.CameraMode ~= Enum.CameraMode.Classic then
-		pcall(function()
-			LP.CameraMode = Enum.CameraMode.Classic
-		end)
-	end
-end
-
-local function setZoom(v)
-	if v and not S.zoom then
-		origZoomMin = LP.CameraMinZoomDistance
-		origZoomMax = LP.CameraMaxZoomDistance
-		origCamMode = LP.CameraMode
-	end
-
-	S.zoom = v
-
-	if v then
-		applyZoom()
-	elseif origZoomMax then
-		pcall(function()
-			LP.CameraMinZoomDistance = 0.5
-			LP.CameraMaxZoomDistance = origZoomMax
-			LP.CameraMinZoomDistance = origZoomMin
-			LP.CameraMode = origCamMode
-		end)
-
-		origZoomMin, origZoomMax, origCamMode = nil, nil, nil
-	end
-end
-
--- Spectate / ถอดจิต (v3.4)
-local specActive = false
-local specRoot, specWasAnchored
-local specPos = Vector3.zero
-local specYaw, specPitch = 0, 0
-local specToggleSet
-
-local function stopSpec()
-	if not specActive then return end
-
-	specActive = false
-
-	pcall(function()
-		RunService:UnbindFromRenderStep("KTHubSpec")
-	end)
-
-	if specRoot and specRoot.Parent then
-		specRoot.Anchored = specWasAnchored or false
-	end
-
-	specRoot = nil
-
-	local cam = Workspace.CurrentCamera
-	local _, hum = getChar()
-
-	if cam then
-		cam.CameraType = Enum.CameraType.Custom
-
-		if hum then
-			cam.CameraSubject = hum
-		end
-	end
-
-	flyPad.Visible = S.fly
-	upHeld, downHeld = false, false
-end
-
-local function startSpec()
-	local _, hum, root = getChar()
-	local cam = Workspace.CurrentCamera
-
-	if not (hum and root and cam) then
-		notify("ยังไม่มีตัวละคร")
-		return false
-	end
-
-	specActive = true
-	specRoot = root
-	specWasAnchored = root.Anchored
-	root.Anchored = true
-
-	specPos = cam.CFrame.Position
-
-	local rx, ry = cam.CFrame:ToOrientation()
-	specPitch, specYaw = rx, ry
-
-	cam.CameraType = Enum.CameraType.Scriptable
-	flyPad.Visible = true
-
-	RunService:BindToRenderStep(
-		"KTHubSpec",
-		Enum.RenderPriority.Camera.Value + 2,
-		function(dt)
-			local c = Workspace.CurrentCamera
-			if not c then return end
-
-			local _, h, r = getChar()
-
-			if not (h and r) or r ~= specRoot or h.Health <= 0 then
-				if specToggleSet then
-					specToggleSet(false)
-				else
-					stopSpec()
-				end
-
-				return
-			end
-
-			if not r.Anchored then
-				r.Anchored = true
-			end
-
-			if c.CameraType ~= Enum.CameraType.Scriptable then
-				c.CameraType = Enum.CameraType.Scriptable
-			end
-
-			local rot = CFrame.fromOrientation(specPitch, specYaw, 0)
-			local look = rot.LookVector
-			local right = rot.RightVector
-
-			local flatLook = Vector3.new(look.X, 0, look.Z)
-			local flatRight = Vector3.new(right.X, 0, right.Z)
-
-			if flatLook.Magnitude > 0.001 then flatLook = flatLook.Unit end
-			if flatRight.Magnitude > 0.001 then flatRight = flatRight.Unit end
-
-			local md = h.MoveDirection
-
-			local vel =
-				look * md:Dot(flatLook)
-				+ right * md:Dot(flatRight)
-
-			if upHeld then
-				vel += Vector3.new(0, 1, 0)
-			end
-
-			if downHeld then
-				vel -= Vector3.new(0, 1, 0)
-			end
-
-			specPos += vel * S.specSpeed * dt
-
-			c.CFrame = CFrame.new(specPos) * rot
-			c.Focus = c.CFrame
-		end
-	)
-
-	return true
-end
-
-local function setSpec(v)
-	if v then
-		if specActive then
-			S.spec = true
-			return
-		end
-
-		S.spec = true
-
-		if not startSpec() then
-			S.spec = false
-
-			task.defer(function()
-				if specToggleSet then
-					specToggleSet(false)
-				end
-			end)
-		end
-	else
-		S.spec = false
-		stopSpec()
-	end
-end
-
-track(UIS.InputChanged:Connect(function(i, processed)
-	if not specActive then return end
-
-	local rotate = false
-
-	if i.UserInputType == Enum.UserInputType.MouseMovement then
-		rotate = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-	elseif i.UserInputType == Enum.UserInputType.Touch then
-		rotate = not processed
-	end
-
-	if rotate then
-		specYaw -= i.Delta.X * 0.005
-		specPitch = math.clamp(specPitch - i.Delta.Y * 0.005, -1.5, 1.5)
-	end
-end))
-
-local function warpBodyToCamera(thenExit)
-	if not specActive then
-		notify("เปิดถอดจิตก่อน")
-		return
-	end
-
-	local _, _, root = getChar()
-
-	if root and root == specRoot then
-		root.CFrame = CFrame.new(specPos) * CFrame.Angles(0, specYaw, 0)
-		root.AssemblyLinearVelocity = Vector3.zero
-		notify("วาร์ปร่างมาที่กล้องแล้ว")
-	end
-
-	if thenExit and specToggleSet then
-		specToggleSet(false)
-	end
-end
 
 -- Noclip
 local noclipConn
@@ -1796,7 +1548,7 @@ track(
 						)
 				end
 
-				flyBV.Velocity = vel
+				flyBV.VectorVelocity = vel
 				flyBG.CFrame = cam.CFrame
 			end
 		end
@@ -1826,10 +1578,6 @@ track(
 track(
 	RunService.RenderStepped:Connect(function()
 
-		if S.zoom then
-			applyZoom()
-		end
-
 		if S.light then
 
 			Lighting.Brightness =
@@ -1847,6 +1595,183 @@ track(
 		end
 	end)
 )
+
+-- Zoom out
+local origZoom = {}
+
+local function applyZoom()
+	if not S.zoom then return end
+	pcall(function()
+		LP.CameraMaxZoomDistance = math.max(S.zoomVal, 0.5)
+		LP.CameraMinZoomDistance = math.max(S.zoomVal, 0.5)
+	end)
+end
+
+local function setZoom(v)
+	S.zoom = v
+
+	if v then
+		if not origZoom.max then
+			origZoom.max = LP.CameraMaxZoomDistance
+			origZoom.min = LP.CameraMinZoomDistance
+		end
+		LP.CameraMaxZoomDistance = math.max(S.zoomVal, 0.5)
+		LP.CameraMinZoomDistance = 0.5
+		task.defer(applyZoom)
+	elseif origZoom.max then
+		LP.CameraMinZoomDistance = origZoom.min
+		LP.CameraMaxZoomDistance = origZoom.max
+		origZoom.max, origZoom.min = nil, nil
+	end
+end
+
+track(RunService.RenderStepped:Connect(function()
+	if S.zoom then applyZoom() end
+end))
+
+-- Spirit (ถอดจิต / free camera)
+local spiritCF, spiritYaw, spiritPitch = nil, 0, 0
+local spiritRoot, spiritWasAnchored
+local lookHeld = false
+
+local function getMoveVector()
+	local ok, v = pcall(function()
+		local pm = require(LP.PlayerScripts:WaitForChild("PlayerModule", 0.1))
+		return pm:GetControls():GetMoveVector()
+	end)
+
+	if ok and typeof(v) == "Vector3" then
+		return v
+	end
+
+	local x = (UIS:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.A) and 1 or 0)
+	local z = (UIS:IsKeyDown(Enum.KeyCode.S) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
+	return Vector3.new(x, 0, z)
+end
+
+track(UIS.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton2 then
+		lookHeld = true
+	end
+end))
+
+track(UIS.InputEnded:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton2 then
+		lookHeld = false
+	end
+end))
+
+track(UIS.InputChanged:Connect(function(i, processed)
+	if not S.spirit then return end
+
+	if i.UserInputType == Enum.UserInputType.MouseMovement and lookHeld then
+		spiritYaw -= math.rad(i.Delta.X * 0.25)
+		spiritPitch = math.clamp(spiritPitch - math.rad(i.Delta.Y * 0.25), -1.5, 1.5)
+	elseif i.UserInputType == Enum.UserInputType.Touch and not processed then
+		spiritYaw -= math.rad(i.Delta.X * 0.3)
+		spiritPitch = math.clamp(spiritPitch - math.rad(i.Delta.Y * 0.3), -1.5, 1.5)
+	end
+end))
+
+local function stopSpirit()
+	if not S.spirit then return end
+	S.spirit = false
+
+	pcall(function() RunService:UnbindFromRenderStep("KTHubSpirit") end)
+
+	if spiritRoot and spiritRoot.Parent then
+		spiritRoot.Anchored = spiritWasAnchored or false
+	end
+	spiritRoot = nil
+
+	local cam = Workspace.CurrentCamera
+	if cam then
+		cam.CameraType = Enum.CameraType.Custom
+		local _, hum = getChar()
+		if hum then cam.CameraSubject = hum end
+	end
+
+	if not S.fly then
+		flyPad.Visible = false
+		upHeld, downHeld = false, false
+	end
+end
+
+local function startSpirit()
+	local cam = Workspace.CurrentCamera
+	local _, hum, root = getChar()
+	if not (cam and hum and root) then
+		notify("ยังไม่มีตัวละคร")
+		return false
+	end
+
+	if S.fly then
+		setFly(false)
+	end
+
+	S.spirit = true
+	spiritRoot = root
+	spiritWasAnchored = root.Anchored
+	root.Anchored = true
+
+	spiritCF = cam.CFrame
+	local x, y = spiritCF:ToOrientation()
+	spiritPitch, spiritYaw = x, y
+
+	cam.CameraType = Enum.CameraType.Scriptable
+	flyPad.Visible = true
+
+	RunService:BindToRenderStep("KTHubSpirit", Enum.RenderPriority.Camera.Value + 2, function(dt)
+		local c = Workspace.CurrentCamera
+		if not (S.spirit and c) then return end
+
+		c.CameraType = Enum.CameraType.Scriptable
+
+		local rot = CFrame.fromOrientation(spiritPitch, spiritYaw, 0)
+		local mv = getMoveVector()
+		local dir = rot.RightVector * mv.X + rot.LookVector * -mv.Z
+
+		if upHeld then dir += Vector3.yAxis end
+		if downHeld then dir -= Vector3.yAxis end
+		if UIS:IsKeyDown(Enum.KeyCode.E) then dir += Vector3.yAxis end
+		if UIS:IsKeyDown(Enum.KeyCode.Q) then dir -= Vector3.yAxis end
+
+		local pos = spiritCF.Position
+		if dir.Magnitude > 0 then
+			pos += dir.Unit * S.spiritSpeed * dt
+		end
+
+		spiritCF = CFrame.new(pos) * rot
+		c.CFrame = spiritCF
+	end)
+
+	return true
+end
+
+local function setSpirit(v)
+	if v then
+		startSpirit()
+	else
+		stopSpirit()
+	end
+end
+
+local function warpToSpirit()
+	if not S.spirit then
+		notify("เปิดถอดจิตก่อน")
+		return
+	end
+
+	local _, _, root = getChar()
+	if not root then return end
+
+	root.Anchored = false
+	root.CFrame = CFrame.new(spiritCF.Position + Vector3.new(0, 3, 0))
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.Anchored = true
+	notify("วาร์ปตัวไปที่กล้องแล้ว")
+end
+
 
 -- BUILD PAGES
 
@@ -1972,6 +1897,63 @@ Toggle(
 	setNoclip
 )
 
+Label(pMain, "กล้อง")
+
+Toggle(
+	pMain,
+	"ซูมออกไกล",
+	setZoom
+)
+
+Slider(
+	pMain,
+	"ระยะซูม",
+	10,
+	1000,
+	S.zoomVal,
+	function(v)
+		S.zoomVal = v
+		applyZoom()
+		if S.zoom then
+			pcall(function() LP.CameraMaxZoomDistance = v end)
+		end
+	end
+)
+
+Label(pMain, "ถอดจิต")
+
+local setSpiritToggle
+setSpiritToggle = Toggle(
+	pMain,
+	"ถอดจิต (กล้องอิสระ)",
+	setSpirit
+)
+
+Slider(
+	pMain,
+	"ความเร็วถอดจิต",
+	5,
+	500,
+	S.spiritSpeed,
+	function(v)
+		S.spiritSpeed = v
+	end
+)
+
+Button(
+	pMain,
+	"วาร์ปตัวไปที่กล้อง",
+	warpToSpirit
+)
+
+Button(
+	pMain,
+	"ออกจากถอดจิต (กลับตัว)",
+	function()
+		setSpiritToggle(false)
+	end
+)
+
 -- มองเห็น
 local pVis = Page("มองเห็น")
 
@@ -2018,29 +2000,6 @@ Toggle(
 		if not v then
 			hideAimLine()
 		end
-	end
-)
-
-Label(
-	pVis,
-	"กล้อง"
-)
-
-Toggle(
-	pVis,
-	"ซูมออกหน้าจอไกล",
-	setZoom
-)
-
-Slider(
-	pVis,
-	"ระยะซูม",
-	10,
-	500,
-	S.zoomVal,
-	function(v)
-		S.zoomVal = v
-		applyZoom()
 	end
 )
 
@@ -2112,7 +2071,7 @@ Toggle(
 
 Slider(
 	pAim,
-	"ขนาดฮิตบ็อกซ์",
+	"ขนาดฮิตบ็อกซ์ NPC",
 	2,
 	30,
 	S.hitSize,
@@ -2133,12 +2092,22 @@ Slider(
 	pAim,
 	"ขนาดฮิตบ็อกซ์ผู้เล่น",
 	2,
-	30,
+	40,
 	S.hitSizeP,
 	function(v)
 		S.hitSizeP = v
 	end
 )
+
+Toggle(
+	pAim,
+	"ฮิตบ็อกซ์: ข้ามทีมเดียวกัน",
+	function(v)
+		S.hitTeam = v
+	end,
+	true
+)
+
 
 -- Warp
 local pTp = Page("วาร์ป")
@@ -2190,44 +2159,6 @@ Toggle(
 	pTp,
 	"กดหน้าจอเพื่อวาร์ป",
 	setClickTeleport
-)
-
-Label(
-	pTp,
-	"ถอดจิต (ลากหน้าจอ/คลิกขวาค้างเพื่อหมุนกล้อง)"
-)
-
-specToggleSet = Toggle(
-	pTp,
-	"ถอดจิต (ตัวค้างอยู่ที่เดิม)",
-	setSpec
-)
-
-Slider(
-	pTp,
-	"ความเร็วถอดจิต",
-	10,
-	300,
-	S.specSpeed,
-	function(v)
-		S.specSpeed = v
-	end
-)
-
-Button(
-	pTp,
-	"วาร์ปร่างไปที่กล้อง (ยังถอดจิตอยู่)",
-	function()
-		warpBodyToCamera(false)
-	end
-)
-
-Button(
-	pTp,
-	"วาร์ปร่างไปที่กล้อง แล้วกลับเข้าร่าง",
-	function()
-		warpBodyToCamera(true)
-	end
 )
 
 refreshPlayerList()
@@ -2314,8 +2245,8 @@ local function cleanup()
 
 	S.hitbox = false
 	S.hitboxP = false
-	restoreP()
-	setSpec(false)
+	restoreHitboxes()
+	stopSpirit()
 	setZoom(false)
 	hideAimLine()
 
