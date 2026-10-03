@@ -1,4 +1,4 @@
---// ขอโทษ HUB v3.1
+--// ขอโทษ HUB v3.2
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -38,6 +38,8 @@ local S = {
 	invisible = false,
 	clickTp = false,
 	pickupOnce = false,
+	espLine = false,
+	wallbang = false,
 }
 
 local C = {
@@ -156,6 +158,71 @@ local fovCircle = new("Frame", {
 corner(fovCircle, 1000)
 stroke(fovCircle, C.accent, 1.5)
 
+-- ESP Aim Line
+local aimLine = new("Frame", {
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.fromOffset(0, 0),
+	Size = UDim2.fromOffset(0, 2),
+	BackgroundColor3 = C.accent,
+	BorderSizePixel = 0,
+	Visible = false,
+	ZIndex = 20
+}, overlay)
+
+local aimDot = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromOffset(0, 0),
+	Size = UDim2.fromOffset(7, 7),
+	BackgroundColor3 = C.accent,
+	BorderSizePixel = 0,
+	Visible = false,
+	ZIndex = 21
+}, overlay)
+
+corner(aimDot, 10)
+
+local function hideAimLine()
+	aimLine.Visible = false
+	aimDot.Visible = false
+end
+
+local function setAimLine(head)
+	if not S.espLine or not head then
+		hideAimLine()
+		return
+	end
+
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		hideAimLine()
+		return
+	end
+
+	local p, onScreen = cam:WorldToViewportPoint(head.Position)
+	if not onScreen then
+		hideAimLine()
+		return
+	end
+
+	local center = cam.ViewportSize / 2
+	local target = Vector2.new(p.X, p.Y)
+	local delta = target - center
+	local distance = delta.Magnitude
+
+	if distance < 1 then
+		center = center + Vector2.new(1, 0)
+		delta = target - center
+		distance = delta.Magnitude
+	end
+
+	aimLine.Position = UDim2.fromOffset(center.X, center.Y)
+	aimLine.Size = UDim2.fromOffset(distance, 2)
+	aimLine.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+	aimDot.Position = UDim2.fromOffset(target.X, target.Y)
+	aimLine.Visible = true
+	aimDot.Visible = true
+end
+
 -- Main
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -177,7 +244,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -70, 1, 0),
 	Position = UDim2.fromOffset(12, 0),
 	BackgroundTransparency = 1,
-	Text = "ขอโทษ HUB | v3.1",
+	Text = "ขอโทษ HUB | v3.2",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 16,
@@ -796,6 +863,7 @@ RunService:BindToRenderStep(
 	function()
 
 		if not (S.lockP or S.lockN) then
+			hideAimLine()
 			return
 		end
 
@@ -852,6 +920,7 @@ RunService:BindToRenderStep(
 		end
 
 		if best then
+			setAimLine(best)
 			local goal =
 				CFrame.lookAt(
 					cam.CFrame.Position,
@@ -860,6 +929,8 @@ RunService:BindToRenderStep(
 
 			cam.CFrame =
 				cam.CFrame:Lerp(goal, 0.5)
+		else
+			hideAimLine()
 		end
 	end
 )
@@ -1486,6 +1557,76 @@ track(
 
 -- BUILD PAGES
 
+-- STATUS
+local pStatus = Page("สถานะ")
+
+local statusHeader = new("Frame", {
+	Size = UDim2.new(1, -10, 0, 68),
+	BackgroundColor3 = C.row
+}, pStatus)
+
+corner(statusHeader, 8)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 26),
+	Position = UDim2.fromOffset(12, 7),
+	BackgroundTransparency = 1,
+	Text = "SERVER DASHBOARD",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 17,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, statusHeader)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 20),
+	Position = UDim2.fromOffset(12, 36),
+	BackgroundTransparency = 1,
+	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB v3.2",
+	TextColor3 = Color3.fromRGB(145, 160, 200),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, statusHeader)
+
+Label(pStatus, "SERVER")
+
+statusRow(pStatus, "FE", "FE")
+statusRow(pStatus, "Job ID", "JobID")
+statusRow(pStatus, "Place ID", "PlaceID")
+statusRow(pStatus, "Country", "Country")
+statusRow(pStatus, "Map Name", "MapName")
+statusRow(pStatus, "Game", "GameName")
+statusRow(pStatus, "Creator", "Creator")
+
+Label(pStatus, "PLAYER")
+
+statusRow(pStatus, "User ID", "UserID")
+statusRow(pStatus, "FPS", "FPS")
+statusRow(pStatus, "Ping", "Ping")
+
+local function updateStatus()
+	if not pStatus or not pStatus.Parent then
+		return
+	end
+
+	local data = getStatusText()
+
+	for key, label in pairs(statusLabels) do
+		if label and label.Parent then
+			label.Text = tostring(data[key] or "--")
+		end
+	end
+end
+
+statusUpdater = task.spawn(function()
+	while gui.Parent do
+		updateStatus()
+		task.wait(1)
+	end
+end)
+
+
 local pMain = Page("หลัก")
 
 Label(pMain, "การเคลื่อนที่")
@@ -1576,6 +1717,17 @@ Toggle(
 	end
 )
 
+Toggle(
+	pVis,
+	"ESP เส้น → หัวที่ล็อค",
+	function(v)
+		S.espLine = v
+		if not v then
+			hideAimLine()
+		end
+	end
+)
+
 -- Aim
 local pAim = Page("ล็อคเป้า")
 
@@ -1650,6 +1802,15 @@ Slider(
 	S.hitSize,
 	function(v)
 		S.hitSize = v
+	end
+)
+
+Toggle(
+	pAim,
+	"ยิงทะลุกำแพง",
+	function(v)
+		S.wallbang = v
+		notify(v and "เปิดยิงทะลุกำแพง" or "ปิดยิงทะลุกำแพง")
 	end
 )
 
@@ -1777,77 +1938,9 @@ Button(
 	serverHop
 )
 
--- STATUS
-local pStatus = Page("สถานะ")
-
-local statusHeader = new("Frame", {
-	Size = UDim2.new(1, -10, 0, 68),
-	BackgroundColor3 = C.row
-}, pStatus)
-
-corner(statusHeader, 8)
-
-new("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 26),
-	Position = UDim2.fromOffset(12, 7),
-	BackgroundTransparency = 1,
-	Text = "SERVER DASHBOARD",
-	TextColor3 = C.text,
-	Font = FONT,
-	TextSize = 17,
-	TextXAlignment = Enum.TextXAlignment.Left
-}, statusHeader)
-
-new("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 20),
-	Position = UDim2.fromOffset(12, 36),
-	BackgroundTransparency = 1,
-	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB v3.1",
-	TextColor3 = Color3.fromRGB(145, 160, 200),
-	Font = Enum.Font.GothamMedium,
-	TextSize = 11,
-	TextXAlignment = Enum.TextXAlignment.Left
-}, statusHeader)
-
-Label(pStatus, "SERVER")
-
-statusRow(pStatus, "FE", "FE")
-statusRow(pStatus, "Job ID", "JobID")
-statusRow(pStatus, "Place ID", "PlaceID")
-statusRow(pStatus, "Country", "Country")
-statusRow(pStatus, "Map Name", "MapName")
-statusRow(pStatus, "Game", "GameName")
-statusRow(pStatus, "Creator", "Creator")
-
-Label(pStatus, "PLAYER")
-
-statusRow(pStatus, "User ID", "UserID")
-statusRow(pStatus, "FPS", "FPS")
-statusRow(pStatus, "Ping", "Ping")
-
-local function updateStatus()
-	if not pStatus or not pStatus.Parent then
-		return
-	end
-
-	local data = getStatusText()
-
-	for key, label in pairs(statusLabels) do
-		if label and label.Parent then
-			label.Text = tostring(data[key] or "--")
-		end
-	end
-end
-
-statusUpdater = task.spawn(function()
-	while gui.Parent do
-		updateStatus()
-		task.wait(1)
-	end
-end)
 
 -- Initial tab
-selectTab("หลัก")
+selectTab("สถานะ")
 
 -- Cleanup
 local function cleanup()
@@ -1856,6 +1949,7 @@ local function cleanup()
 	setFly(false)
 
 	S.hitbox = false
+	hideAimLine()
 
 	setNoclip(false)
 	setInvisible(false)
@@ -1888,5 +1982,5 @@ env.__KTHubCleanup = cleanup
 closeBtn.MouseButton1Click:Connect(cleanup)
 
 notify(
-	"ขอโทษ HUB v3.1 โหลดเสร็จเรียบร้อย!"
+	"ขอโทษ HUB v3.2 โหลดเสร็จเรียบร้อย!"
 )
