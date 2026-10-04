@@ -1552,8 +1552,8 @@ local hopAttempt = 0
 
 local hopFrame = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 70),
-	Size = UDim2.fromOffset(310, 74),
+	Position = UDim2.new(0.5, 0, 0, 50),
+	Size = UDim2.fromOffset(460, 140),
 	BackgroundColor3 = C.bg,
 	BorderSizePixel = 0,
 	Active = true,
@@ -1561,31 +1561,31 @@ local hopFrame = new("Frame", {
 	ZIndex = 60
 }, overlay)
 
-corner(hopFrame, 12)
-stroke(hopFrame, C.accent, 1.5)
+corner(hopFrame, 18)
+stroke(hopFrame, C.accent, 2.5)
 
 local hopText = new("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 38),
-	Position = UDim2.fromOffset(12, 8),
+	Size = UDim2.new(1, -32, 0, 84),
+	Position = UDim2.fromOffset(16, 12),
 	BackgroundTransparency = 1,
 	Text = "",
 	TextColor3 = C.text,
 	Font = FONT,
-	TextSize = 14,
+	TextSize = 26,
 	TextWrapped = true,
 	ZIndex = 61
 }, hopFrame)
 
 local hopTrack = new("Frame", {
-	Position = UDim2.new(0, 12, 1, -18),
-	Size = UDim2.new(1, -24, 0, 6),
+	Position = UDim2.new(0, 16, 1, -32),
+	Size = UDim2.new(1, -32, 0, 14),
 	BackgroundColor3 = C.off,
 	BorderSizePixel = 0,
 	ClipsDescendants = true,
 	ZIndex = 61
 }, hopFrame)
 
-corner(hopTrack, 3)
+corner(hopTrack, 7)
 
 local hopBar = new("Frame", {
 	Position = UDim2.fromScale(-0.4, 0),
@@ -1595,7 +1595,7 @@ local hopBar = new("Frame", {
 	ZIndex = 62
 }, hopTrack)
 
-corner(hopBar, 3)
+corner(hopBar, 7)
 
 task.spawn(function()
 	while gui.Parent do
@@ -2286,14 +2286,6 @@ new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
-Label(pStatus, "ควบคุมตัวละคร")
-
-Toggle(
-	pStatus,
-	"ล่องหน",
-	setInvisible
-)
-
 Label(pStatus, "SERVER")
 
 statusRow(pStatus, "FE", "FE")
@@ -2382,6 +2374,12 @@ Toggle(
 	pMain,
 	"ทะลุกำแพง",
 	setNoclip
+)
+
+Toggle(
+	pMain,
+	"ล่องหน",
+	setInvisible
 )
 
 Label(pMain, "กล้อง")
