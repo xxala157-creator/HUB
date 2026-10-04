@@ -652,6 +652,7 @@ end
 
 -- Movement
 local origWS
+local lightOrig = nil
 
 local function setSpeed(v)
 	S.speed = v
@@ -1075,29 +1076,32 @@ local savedTransparency = {}
 local function setInvisible(v)
 	S.invisible = v
 
-	local c = LP.Character
-	if not c then return end
-
-	if v then
-		for _, obj in ipairs(c:GetDescendants()) do
-			if obj:IsA("BasePart")
-				or obj:IsA("Decal")
-				or obj:IsA("Texture") then
-
-				if savedTransparency[obj] == nil then
-					savedTransparency[obj] = obj.Transparency
-				end
-
-				obj.Transparency = 1
-			end
-		end
-	else
+	if not v then
 		for obj, tr in pairs(savedTransparency) do
 			if obj and obj.Parent then
 				obj.Transparency = tr
 			end
-
 			savedTransparency[obj] = nil
+		end
+		return
+	end
+
+	local c = LP.Character
+	if not c then return end
+
+	-- ล้าง reference ของตัวละครเก่าก่อนใช้ตัวละครใหม่
+	for obj in pairs(savedTransparency) do
+		if not obj or not obj.Parent then
+			savedTransparency[obj] = nil
+		end
+	end
+
+	for _, obj in ipairs(c:GetDescendants()) do
+		if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+			if savedTransparency[obj] == nil then
+				savedTransparency[obj] = obj.Transparency
+			end
+			obj.Transparency = 1
 		end
 	end
 end
@@ -1988,21 +1992,26 @@ track(
 
 track(
 	RunService.RenderStepped:Connect(function()
-
 		if S.light then
+			if not lightOrig then
+				lightOrig = {
+					Brightness = Lighting.Brightness,
+					ClockTime = Lighting.ClockTime,
+					GlobalShadows = Lighting.GlobalShadows,
+					Ambient = Lighting.Ambient,
+				}
+			end
 
-			Lighting.Brightness =
-				S.lightVal
-
+			Lighting.Brightness = S.lightVal
 			Lighting.ClockTime = 14
 			Lighting.GlobalShadows = false
-
-			Lighting.Ambient =
-				Color3.fromRGB(
-					150,
-					150,
-					150
-				)
+			Lighting.Ambient = Color3.fromRGB(150, 150, 150)
+		elseif lightOrig then
+			Lighting.Brightness = lightOrig.Brightness
+			Lighting.ClockTime = lightOrig.ClockTime
+			Lighting.GlobalShadows = lightOrig.GlobalShadows
+			Lighting.Ambient = lightOrig.Ambient
+			lightOrig = nil
 		end
 	end)
 )
@@ -2166,6 +2175,33 @@ local function startSpirit()
 
 	return true
 end
+
+-- Respawn safety: re-apply/restore character-dependent features on the new character.
+track(LP.CharacterAdded:Connect(function()
+	local wantSpeed = S.speed
+	local wantFly = S.fly
+	local wantSpirit = S.spirit
+	local wantInvisible = S.invisible
+
+	if wantSpirit then pcall(stopSpirit) end
+	if wantFly then pcall(setFly, false) end
+
+	task.defer(function()
+		if wantSpeed then
+			origWS = nil
+			setSpeed(true)
+		end
+		if wantInvisible then
+			setInvisible(true)
+		end
+		if wantFly then
+			setFly(true)
+		end
+		if wantSpirit then
+			startSpirit()
+		end
+	end)
+end))
 
 local function warpToSpirit()
 	if not S.spirit then
@@ -3425,6 +3461,15 @@ local function cleanup()
 	setInvisible(false)
 	setClickTeleport(false)
 	setPickupOnce(false)
+
+	S.light = false
+	if lightOrig then
+		Lighting.Brightness = lightOrig.Brightness
+		Lighting.ClockTime = lightOrig.ClockTime
+		Lighting.GlobalShadows = lightOrig.GlobalShadows
+		Lighting.Ambient = lightOrig.Ambient
+		lightOrig = nil
+	end
 
 	S.proDetect = false
 	proResetAll()
