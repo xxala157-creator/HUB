@@ -652,7 +652,6 @@ end
 
 -- Movement
 local origWS
-local lightOrig = nil
 
 local function setSpeed(v)
 	S.speed = v
@@ -1076,32 +1075,29 @@ local savedTransparency = {}
 local function setInvisible(v)
 	S.invisible = v
 
-	if not v then
+	local c = LP.Character
+	if not c then return end
+
+	if v then
+		for _, obj in ipairs(c:GetDescendants()) do
+			if obj:IsA("BasePart")
+				or obj:IsA("Decal")
+				or obj:IsA("Texture") then
+
+				if savedTransparency[obj] == nil then
+					savedTransparency[obj] = obj.Transparency
+				end
+
+				obj.Transparency = 1
+			end
+		end
+	else
 		for obj, tr in pairs(savedTransparency) do
 			if obj and obj.Parent then
 				obj.Transparency = tr
 			end
+
 			savedTransparency[obj] = nil
-		end
-		return
-	end
-
-	local c = LP.Character
-	if not c then return end
-
-	-- ล้าง reference ของตัวละครเก่าก่อนใช้ตัวละครใหม่
-	for obj in pairs(savedTransparency) do
-		if not obj or not obj.Parent then
-			savedTransparency[obj] = nil
-		end
-	end
-
-	for _, obj in ipairs(c:GetDescendants()) do
-		if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
-			if savedTransparency[obj] == nil then
-				savedTransparency[obj] = obj.Transparency
-			end
-			obj.Transparency = 1
 		end
 	end
 end
@@ -1992,26 +1988,21 @@ track(
 
 track(
 	RunService.RenderStepped:Connect(function()
-		if S.light then
-			if not lightOrig then
-				lightOrig = {
-					Brightness = Lighting.Brightness,
-					ClockTime = Lighting.ClockTime,
-					GlobalShadows = Lighting.GlobalShadows,
-					Ambient = Lighting.Ambient,
-				}
-			end
 
-			Lighting.Brightness = S.lightVal
+		if S.light then
+
+			Lighting.Brightness =
+				S.lightVal
+
 			Lighting.ClockTime = 14
 			Lighting.GlobalShadows = false
-			Lighting.Ambient = Color3.fromRGB(150, 150, 150)
-		elseif lightOrig then
-			Lighting.Brightness = lightOrig.Brightness
-			Lighting.ClockTime = lightOrig.ClockTime
-			Lighting.GlobalShadows = lightOrig.GlobalShadows
-			Lighting.Ambient = lightOrig.Ambient
-			lightOrig = nil
+
+			Lighting.Ambient =
+				Color3.fromRGB(
+					150,
+					150,
+					150
+				)
 		end
 	end)
 )
@@ -2176,33 +2167,6 @@ local function startSpirit()
 	return true
 end
 
--- Respawn safety: re-apply/restore character-dependent features on the new character.
-track(LP.CharacterAdded:Connect(function()
-	local wantSpeed = S.speed
-	local wantFly = S.fly
-	local wantSpirit = S.spirit
-	local wantInvisible = S.invisible
-
-	if wantSpirit then pcall(stopSpirit) end
-	if wantFly then pcall(setFly, false) end
-
-	task.defer(function()
-		if wantSpeed then
-			origWS = nil
-			setSpeed(true)
-		end
-		if wantInvisible then
-			setInvisible(true)
-		end
-		if wantFly then
-			setFly(true)
-		end
-		if wantSpirit then
-			startSpirit()
-		end
-	end)
-end))
-
 local function warpToSpirit()
 	if not S.spirit then
 		notify("เปิดถอดจิตก่อน")
@@ -2308,16 +2272,22 @@ Button(
 -- =====================================================
 local PRO_STEP = 0.25
 
-local PRO_SKIP_STATES = {
+-- สถานะที่เกมคุมตัวละครเอง: ข้ามทั้งการตรวจบินและวิ่งเร็ว
+local PRO_SKIP_ALL = {
 	[Enum.HumanoidStateType.Dead] = true,
 	[Enum.HumanoidStateType.Seated] = true,
-	[Enum.HumanoidStateType.Ragdoll] = true,
-	[Enum.HumanoidStateType.FallingDown] = true,
-	[Enum.HumanoidStateType.PlatformStand] = true,
-	[Enum.HumanoidStateType.Physics] = true,
 	[Enum.HumanoidStateType.Swimming] = true,
 	[Enum.HumanoidStateType.Climbing] = true,
 	[Enum.HumanoidStateType.Flying] = true,
+}
+
+-- สถานะล้ม/กระเด็น/สตัน: ข้ามเฉพาะการตรวจวิ่งเร็ว
+-- (ไม่ข้ามตอนตรวจบิน เพราะสคริปต์บินหลายตัวใช้ PlatformStand)
+local PRO_SKIP_SPEED = {
+	[Enum.HumanoidStateType.Ragdoll] = true,
+	[Enum.HumanoidStateType.FallingDown] = true,
+	[Enum.HumanoidStateType.PlatformStanding] = true,
+	[Enum.HumanoidStateType.Physics] = true,
 }
 
 local PRO_RED = Color3.fromRGB(255, 40, 40)
@@ -2535,8 +2505,8 @@ local function proFlag(p, kind)
 	end
 end
 
--- ระบบที่เซิร์ฟเวอร์สร้างให้ตัวละคร (เช่น ระบบบิน/บูสต์ของเกม) จะมองเห็นได้ทุกเครื่อง
--- ส่วนของโปรที่สร้างฝั่งเครื่องตัวเองจะไม่ถูกส่งมาที่เครื่องเรา จึงแยกออกจากกันได้
+-- ตัวขับเคลื่อนที่ "เซิร์ฟเวอร์" สร้างให้ตัวละคร (เช่น ระบบบิน/บูสต์ของเกม) จะมองเห็นได้ทุกเครื่อง
+-- แต่ถ้าเกมสร้างจาก LocalScript ฝั่งเครื่องผู้เล่นเอง เราจะมองไม่เห็น และแยกจากโปรไม่ได้
 local function proHasGameMover(char)
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:IsA("BodyMover")
@@ -2553,22 +2523,22 @@ end
 local proRay = RaycastParams.new()
 proRay.FilterType = Enum.RaycastFilterType.Exclude
 
--- ยืนบนพื้น/แท่น/สายพานที่เคลื่อนที่อยู่ไหม (ไม่นับ)
-local function proOnMovingGround(char, root)
+-- ยิงเรย์ลงจากตัวละคร: คืนค่า (ระยะถึงพื้น, ชิ้นส่วนพื้น) หรือ nil ถ้าไม่เจอ
+-- ใช้แทนการเชื่อ FloorMaterial อย่างเดียว เพราะค่านี้ของผู้เล่นคนอื่นอาจไม่ตรงความจริง
+local function proProbe(char, root)
 	proRay.FilterDescendantsInstances = {char}
 
 	local hit = Workspace:Raycast(
 		root.Position,
-		Vector3.new(0, -8, 0),
+		Vector3.new(0, -40, 0),
 		proRay
 	)
 
-	if hit and hit.Instance then
-		local v = hit.Instance.AssemblyLinearVelocity
-		return Vector3.new(v.X, 0, v.Z).Magnitude > 2
+	if hit then
+		return hit.Distance, hit.Instance
 	end
 
-	return false
+	return nil, nil
 end
 
 local function proSample(p, now)
@@ -2634,7 +2604,7 @@ local function proSample(p, now)
 		return
 	end
 
-	-- เกมควบคุมตัวละครอยู่ (รถ, ที่นั่ง, ล้ม, กระเด็น, ว่ายน้ำ, ปีน ฯลฯ)
+	-- เกมควบคุมตัวละครอยู่ (รถ, ที่นั่ง, ว่ายน้ำ, ปีน ฯลฯ)
 	local okS, state = pcall(function()
 		return hum:GetState()
 	end)
@@ -2642,7 +2612,7 @@ local function proSample(p, now)
 	if hum.Sit
 		or hum.SeatPart
 		or root.Anchored
-		or (okS and PRO_SKIP_STATES[state]) then
+		or (okS and PRO_SKIP_ALL[state]) then
 
 		clearStreaks()
 		st.grace = now + 1.5
@@ -2654,15 +2624,25 @@ local function proSample(p, now)
 		return
 	end
 
-	local grounded = hum.FloorMaterial ~= Enum.Material.Air
+	-- อยู่บนพื้นไหม: เรย์ใกล้พื้น หรือ FloorMaterial บอกว่าไม่ใช่อากาศ
+	local standDist = hum.HipHeight + 5
+	local dist, ground = proProbe(char, root)
+	local nearGround = dist ~= nil and dist <= standDist
+	local grounded = nearGround or hum.FloorMaterial ~= Enum.Material.Air
 
 	-- ===== วิ่งเร็วผิดปกติ =====
 	-- เทียบกับ WalkSpeed ที่เซิร์ฟเวอร์ตั้งไว้ (เกมบูสต์เองจะถูกนับเป็นปกติ)
 	local flat = Vector3.new(delta.X, 0, delta.Z).Magnitude / dt
 	local allowed = math.max(hum.WalkSpeed, 16) * (S.proSpeedMul / 100)
+	local skipSpeed = okS and PRO_SKIP_SPEED[state]
 
-	if grounded and flat > allowed then
-		if proOnMovingGround(char, root) or proHasGameMover(char) then
+	if grounded and not skipSpeed and flat > allowed then
+		local gv = ground and ground.AssemblyLinearVelocity
+		local onMoving = gv
+			and Vector3.new(gv.X, 0, gv.Z).Magnitude > 2
+
+		-- ยืนบนพื้น/สายพาน/แท่นที่เคลื่อนที่ หรือมีตัวขับเคลื่อนของเกม = ไม่นับ
+		if onMoving or proHasGameMover(char) then
 			st.speedStreak = 0
 		else
 			st.speedStreak = st.speedStreak + 1
@@ -3461,15 +3441,6 @@ local function cleanup()
 	setInvisible(false)
 	setClickTeleport(false)
 	setPickupOnce(false)
-
-	S.light = false
-	if lightOrig then
-		Lighting.Brightness = lightOrig.Brightness
-		Lighting.ClockTime = lightOrig.ClockTime
-		Lighting.GlobalShadows = lightOrig.GlobalShadows
-		Lighting.Ambient = lightOrig.Ambient
-		lightOrig = nil
-	end
 
 	S.proDetect = false
 	proResetAll()
