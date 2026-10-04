@@ -1,4 +1,4 @@
---// ขอโทษ HUB V4.0
+--// ขอโทษ HUB V4.1
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,7 +15,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.0"
+local VERSION = "V4.1"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -45,7 +45,18 @@ local S = {
 	pickupOnce = false,
 	espLine = false,
 	antiLag = false,
+
+	-- ตรวจจับโปร
+	proDetect = false,
+	proEsp = true,
+	proNotify = true,
+	proSticky = true,
+	proSpeedMul = 230,
+	proFlyTime = 3,
 }
+
+-- รายชื่อคนที่ตรวจเจอว่าโปร [Player] = {fly=, speed=, last=}
+local proFlagged = {}
 
 local C = {
 	bg = Color3.fromRGB(12, 16, 42),
@@ -856,7 +867,9 @@ task.spawn(function()
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= LP and p.Character then
 
-					if alive(p.Character) then
+					if proFlagged[p] and S.proDetect and S.proEsp then
+						clearESP(p.Character)
+					elseif alive(p.Character) then
 						applyESP(
 							p.Character,
 							Color3.fromRGB(0, 170, 255),
@@ -2252,6 +2265,526 @@ Button(
 )
 
 
+-- =====================================================
+-- ตรวจจับโปร (บินนานผิดปกติ / วิ่งเร็วผิดปกติ)
+-- ไม่นับระบบที่เกมมีให้: รถ/ที่นั่ง, วาร์ปของเกม, กระเด็น/ล้ม,
+-- ว่ายน้ำ/ปีนบันได, พื้นเคลื่อนที่, ระบบบิน/บูสต์ที่เซิร์ฟเวอร์สร้างให้
+-- =====================================================
+local PRO_STEP = 0.25
+
+-- สถานะที่เกมคุมตัวละครเอง: ข้ามทั้งการตรวจบินและวิ่งเร็ว
+local PRO_SKIP_ALL = {
+	[Enum.HumanoidStateType.Dead] = true,
+	[Enum.HumanoidStateType.Seated] = true,
+	[Enum.HumanoidStateType.Swimming] = true,
+	[Enum.HumanoidStateType.Climbing] = true,
+	[Enum.HumanoidStateType.Flying] = true,
+}
+
+-- สถานะล้ม/กระเด็น/สตัน: ข้ามเฉพาะการตรวจวิ่งเร็ว
+-- (ไม่ข้ามตอนตรวจบิน เพราะสคริปต์บินหลายตัวใช้ PlatformStand)
+local PRO_SKIP_SPEED = {
+	[Enum.HumanoidStateType.Ragdoll] = true,
+	[Enum.HumanoidStateType.FallingDown] = true,
+	[Enum.HumanoidStateType.PlatformStanding] = true,
+	[Enum.HumanoidStateType.Physics] = true,
+}
+
+local PRO_RED = Color3.fromRGB(255, 40, 40)
+
+local proTrack = {}
+
+-- ตัวแปรของ UI (กำหนดค่าตอนสร้างหน้า)
+local proCountLabel, proListFrame
+local svCount, svSlots, svList
+
+local function proReason(f)
+	local t = {}
+
+	if f.fly then
+		t[#t + 1] = "บินนาน"
+	end
+
+	if f.speed then
+		t[#t + 1] = "วิ่งเร็ว"
+	end
+
+	return table.concat(t, " + ")
+end
+
+-- แท็บเซิฟ: จำนวนคน + รายชื่อ
+local function updateServerInfo()
+	if not (svCount and svCount.Parent) then
+		return
+	end
+
+	local n = 0
+
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl.Parent == Players then
+			n = n + 1
+		end
+	end
+
+	local maxP = Players.MaxPlayers
+
+	svCount.Text = n .. " / " .. maxP .. " คน"
+
+	if svSlots and svSlots.Parent then
+		svSlots.Text = "ว่างอีก " .. math.max(maxP - n, 0) .. " ที่"
+	end
+end
+
+local function refreshServerList()
+	if not (svList and svList.Parent) then
+		return
+	end
+
+	for _, c in ipairs(svList:GetChildren()) do
+		if c:IsA("TextLabel") then
+			c:Destroy()
+		end
+	end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		local f = proFlagged[p]
+		local txt = "  " .. p.DisplayName .. " (@" .. p.Name .. ")"
+
+		if p == LP then
+			txt = txt .. " • คุณ"
+		end
+
+		if f then
+			txt = txt .. " • โปร"
+		end
+
+		new("TextLabel", {
+			Size = UDim2.new(1, -8, 0, 24),
+			BackgroundColor3 = C.off,
+			Text = txt,
+			TextColor3 = f and Color3.fromRGB(255, 90, 90) or C.text,
+			Font = FONT,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd
+		}, svList)
+	end
+end
+
+-- แท็บตรวจจับโปร: จำนวน + รายชื่อคนโปร
+local function proRefreshUI()
+	local n = 0
+
+	for _ in pairs(proFlagged) do
+		n = n + 1
+	end
+
+	if proCountLabel and proCountLabel.Parent then
+		proCountLabel.Text = "ตรวจพบโปร: " .. n .. " คน"
+	end
+
+	if proListFrame and proListFrame.Parent then
+		for _, c in ipairs(proListFrame:GetChildren()) do
+			if c:IsA("TextLabel") then
+				c:Destroy()
+			end
+		end
+
+		for p, f in pairs(proFlagged) do
+			new("TextLabel", {
+				Size = UDim2.new(1, -8, 0, 24),
+				BackgroundColor3 = C.off,
+				Text = "  " .. p.DisplayName .. " (@" .. p.Name .. ") • " .. proReason(f),
+				TextColor3 = Color3.fromRGB(255, 90, 90),
+				Font = FONT,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd
+			}, proListFrame)
+		end
+	end
+
+	refreshServerList()
+end
+
+-- ESP คนโปร (สีแดง + ขึ้นว่าโปร)
+local function proClearESP(char)
+	local hl = char:FindFirstChild("_ProHL")
+
+	if hl then
+		hl:Destroy()
+	end
+end
+
+local function proApplyESP(char, name, reason)
+	local hl = char:FindFirstChild("_ProHL")
+
+	if not hl then
+		hl = new("Highlight", {
+			Name = "_ProHL",
+			FillColor = PRO_RED,
+			OutlineColor = PRO_RED,
+			FillTransparency = 0.35,
+			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+			Adornee = char
+		}, char)
+
+		local head = char:FindFirstChild("Head")
+
+		if head then
+			local bb = new("BillboardGui", {
+				Name = "_ProTag",
+				Size = UDim2.fromOffset(180, 36),
+				StudsOffset = Vector3.new(0, 3.2, 0),
+				AlwaysOnTop = true,
+				Adornee = head
+			}, hl)
+
+			new("TextLabel", {
+				Name = "Txt",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Text = "",
+				TextColor3 = PRO_RED,
+				Font = FONT,
+				TextSize = 14,
+				TextWrapped = true,
+				TextStrokeTransparency = 0.2
+			}, bb)
+		end
+	end
+
+	local bb = hl:FindFirstChild("_ProTag")
+	local txt = bb and bb:FindFirstChild("Txt")
+
+	if txt then
+		txt.Text = name .. "\nโปร • " .. reason
+	end
+end
+
+local function proResetAll()
+	for p in pairs(proFlagged) do
+		proFlagged[p] = nil
+	end
+
+	for p in pairs(proTrack) do
+		proTrack[p] = nil
+	end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			proClearESP(p.Character)
+		end
+	end
+
+	proRefreshUI()
+end
+
+local function proFlag(p, kind)
+	local f = proFlagged[p]
+
+	if not f then
+		f = {fly = false, speed = false}
+		proFlagged[p] = f
+	end
+
+	local was = f[kind]
+
+	f[kind] = true
+	f.last = os.clock()
+
+	if not was then
+		if S.proNotify then
+			notify(
+				"ตรวจพบโปร: " .. p.DisplayName
+				.. " (" .. (kind == "fly" and "บินนาน" or "วิ่งเร็ว") .. ")"
+			)
+		end
+
+		proRefreshUI()
+	end
+end
+
+-- ตัวขับเคลื่อนที่ "เซิร์ฟเวอร์" สร้างให้ตัวละคร (เช่น ระบบบิน/บูสต์ของเกม) จะมองเห็นได้ทุกเครื่อง
+-- แต่ถ้าเกมสร้างจาก LocalScript ฝั่งเครื่องผู้เล่นเอง เราจะมองไม่เห็น และแยกจากโปรไม่ได้
+local function proHasGameMover(char)
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BodyMover")
+			or d:IsA("LinearVelocity")
+			or d:IsA("VectorForce")
+			or d:IsA("AlignPosition") then
+			return true
+		end
+	end
+
+	return false
+end
+
+local proRay = RaycastParams.new()
+proRay.FilterType = Enum.RaycastFilterType.Exclude
+
+-- ยิงเรย์ลงจากตัวละคร: คืนค่า (ระยะถึงพื้น, ชิ้นส่วนพื้น) หรือ nil ถ้าไม่เจอ
+-- ใช้แทนการเชื่อ FloorMaterial อย่างเดียว เพราะค่านี้ของผู้เล่นคนอื่นอาจไม่ตรงความจริง
+local function proProbe(char, root)
+	proRay.FilterDescendantsInstances = {char}
+
+	local hit = Workspace:Raycast(
+		root.Position,
+		Vector3.new(0, -40, 0),
+		proRay
+	)
+
+	if hit then
+		return hit.Distance, hit.Instance
+	end
+
+	return nil, nil
+end
+
+local function proSample(p, now)
+	local char = p.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+
+	local st = proTrack[p]
+
+	if not st then
+		st = {
+			speedStreak = 0,
+			flyStreak = 0,
+			ys = {},
+			grace = 0
+		}
+		proTrack[p] = st
+	end
+
+	local function clearStreaks()
+		st.speedStreak = 0
+		st.flyStreak = 0
+		st.airStart = nil
+		st.ys = {}
+	end
+
+	if not (char and hum and root) or hum.Health <= 0 then
+		clearStreaks()
+		st.char = nil
+		st.lastPos = nil
+		return
+	end
+
+	-- เกิดใหม่/เปลี่ยนตัวละคร: เว้นช่วงให้ก่อน
+	if st.char ~= char then
+		st.char = char
+		st.lastPos = nil
+		clearStreaks()
+		st.grace = now + 3
+	end
+
+	local pos = root.Position
+	local lastPos, lastT = st.lastPos, st.lastT
+
+	st.lastPos, st.lastT = pos, now
+
+	if not lastPos then
+		return
+	end
+
+	local dt = now - lastT
+
+	if dt <= 0 then
+		return
+	end
+
+	local delta = pos - lastPos
+
+	-- วาร์ป/ย้ายจุดของเกม: ข้ามและเว้นช่วง
+	if delta.Magnitude > 150 then
+		clearStreaks()
+		st.grace = now + 2.5
+		return
+	end
+
+	-- เกมควบคุมตัวละครอยู่ (รถ, ที่นั่ง, ว่ายน้ำ, ปีน ฯลฯ)
+	local okS, state = pcall(function()
+		return hum:GetState()
+	end)
+
+	if hum.Sit
+		or hum.SeatPart
+		or root.Anchored
+		or (okS and PRO_SKIP_ALL[state]) then
+
+		clearStreaks()
+		st.grace = now + 1.5
+		return
+	end
+
+	if now < st.grace then
+		clearStreaks()
+		return
+	end
+
+	-- อยู่บนพื้นไหม: เรย์ใกล้พื้น หรือ FloorMaterial บอกว่าไม่ใช่อากาศ
+	local standDist = hum.HipHeight + 5
+	local dist, ground = proProbe(char, root)
+	local nearGround = dist ~= nil and dist <= standDist
+	local grounded = nearGround or hum.FloorMaterial ~= Enum.Material.Air
+
+	-- ===== วิ่งเร็วผิดปกติ =====
+	-- เทียบกับ WalkSpeed ที่เซิร์ฟเวอร์ตั้งไว้ (เกมบูสต์เองจะถูกนับเป็นปกติ)
+	local flat = Vector3.new(delta.X, 0, delta.Z).Magnitude / dt
+	local allowed = math.max(hum.WalkSpeed, 16) * (S.proSpeedMul / 100)
+	local skipSpeed = okS and PRO_SKIP_SPEED[state]
+
+	if grounded and not skipSpeed and flat > allowed then
+		local gv = ground and ground.AssemblyLinearVelocity
+		local onMoving = gv
+			and Vector3.new(gv.X, 0, gv.Z).Magnitude > 2
+
+		-- ยืนบนพื้น/สายพาน/แท่นที่เคลื่อนที่ หรือมีตัวขับเคลื่อนของเกม = ไม่นับ
+		if onMoving or proHasGameMover(char) then
+			st.speedStreak = 0
+		else
+			st.speedStreak = st.speedStreak + 1
+		end
+	else
+		st.speedStreak = 0
+	end
+
+	if st.speedStreak >= 5 then
+		proFlag(p, "speed")
+	end
+
+	-- ===== บินนานผิดปกติ =====
+	-- ลอยอยู่กลางอากาศนานเกินกำหนด และไม่ได้ตกลงตามแรงโน้มถ่วง
+	if not grounded then
+		if not st.airStart then
+			st.airStart = now
+			st.ys = {}
+		end
+
+		local ys = st.ys
+
+		ys[#ys + 1] = {now, pos.Y}
+
+		while #ys > 0 and now - ys[1][1] > 1.2 do
+			table.remove(ys, 1)
+		end
+
+		local g = Workspace.Gravity
+
+		-- แมพแรงโน้มถ่วงต่ำ = ระบบของเกม ไม่ตรวจ
+		if g >= 60 then
+			local need = S.proFlyTime * math.sqrt(196.2 / g)
+
+			if now - st.airStart >= need and #ys >= 3 then
+				local span = ys[#ys][1] - ys[1][1]
+
+				if span >= 0.7 then
+					local vy = (ys[#ys][2] - ys[1][2]) / span
+
+					if vy > -(g * 0.15) and not proHasGameMover(char) then
+						st.flyStreak = st.flyStreak + 1
+					else
+						st.flyStreak = 0
+					end
+				end
+			end
+
+			if st.flyStreak >= 2 then
+				proFlag(p, "fly")
+			end
+		end
+	else
+		st.airStart = nil
+		st.ys = {}
+		st.flyStreak = 0
+	end
+end
+
+-- ลูปตรวจ
+task.spawn(function()
+	while gui.Parent do
+		if S.proDetect then
+			local now = os.clock()
+
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LP then
+					pcall(proSample, p, now)
+				end
+			end
+
+			-- ถ้าปิด "จำคนโปรไว้ตลอด" ให้หมดสถานะเองหลัง 20 วินาที
+			if not S.proSticky then
+				local changed = false
+
+				for p, f in pairs(proFlagged) do
+					if f.last and now - f.last > 20 then
+						proFlagged[p] = nil
+						changed = true
+
+						if p.Character then
+							proClearESP(p.Character)
+						end
+					end
+				end
+
+				if changed then
+					proRefreshUI()
+				end
+			end
+		end
+
+		task.wait(PRO_STEP)
+	end
+end)
+
+-- ลูป ESP คนโปร
+task.spawn(function()
+	while gui.Parent do
+		for _, p in ipairs(Players:GetPlayers()) do
+			local char = p.Character
+
+			if char then
+				local f = proFlagged[p]
+
+				if S.proDetect and S.proEsp and f and alive(char) then
+					proApplyESP(char, p.DisplayName, proReason(f))
+				else
+					proClearESP(char)
+				end
+			end
+		end
+
+		task.wait(0.5)
+	end
+end)
+
+-- อัปเดตจำนวนคนในเซิฟทุกวินาที + ตอนมีคนเข้า/ออก
+task.spawn(function()
+	while gui.Parent do
+		updateServerInfo()
+		task.wait(1)
+	end
+end)
+
+track(Players.PlayerAdded:Connect(function()
+	task.defer(function()
+		updateServerInfo()
+		refreshServerList()
+	end)
+end))
+
+track(Players.PlayerRemoving:Connect(function(p)
+	proTrack[p] = nil
+	proFlagged[p] = nil
+
+	task.defer(function()
+		updateServerInfo()
+		proRefreshUI()
+	end)
+end))
+
 -- BUILD PAGES
 
 -- STATUS
@@ -2322,6 +2855,81 @@ statusUpdater = task.spawn(function()
 		task.wait(1)
 	end
 end)
+
+
+-- เซิฟ (จำนวนคนในเซิร์ฟเวอร์)
+local pServer = Page("เซิฟ")
+
+local svHeader = new("Frame", {
+	Size = UDim2.new(1, -10, 0, 76),
+	BackgroundColor3 = C.row
+}, pServer)
+
+corner(svHeader, 8)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 18),
+	Position = UDim2.fromOffset(12, 8),
+	BackgroundTransparency = 1,
+	Text = "คนในเซิฟตอนนี้",
+	TextColor3 = Color3.fromRGB(145, 160, 200),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, svHeader)
+
+svCount = new("TextLabel", {
+	Size = UDim2.new(0.6, 0, 0, 38),
+	Position = UDim2.fromOffset(12, 28),
+	BackgroundTransparency = 1,
+	Text = "-- คน",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 28,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, svHeader)
+
+svSlots = new("TextLabel", {
+	Size = UDim2.new(0.4, -12, 0, 38),
+	Position = UDim2.new(0.6, 0, 0, 28),
+	BackgroundTransparency = 1,
+	Text = "",
+	TextColor3 = C.accent,
+	Font = FONT,
+	TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Right
+}, svHeader)
+
+Button(
+	pServer,
+	"ย้ายไปเซิร์ฟคนน้อย",
+	serverHop
+)
+
+Label(pServer, "รายชื่อผู้เล่นในเซิฟ")
+
+svList = new("ScrollingFrame", {
+	Size = UDim2.new(1, -6, 0, 130),
+	BackgroundColor3 = C.row,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
+}, pServer)
+
+corner(svList, 6)
+
+new("UIListLayout", {
+	Padding = UDim.new(0, 4)
+}, svList)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4)
+}, svList)
+
+updateServerInfo()
+refreshServerList()
 
 
 local pMain = Page("หลัก")
@@ -2456,6 +3064,140 @@ Toggle(
 		end
 	end
 )
+
+-- ตรวจจับโปร
+local pPro = Page("ตรวจจับโปร")
+
+Label(
+	pPro,
+	"ระบบตรวจจับโปร"
+)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -6, 0, 44),
+	BackgroundTransparency = 1,
+	Text = "ตรวจคนที่บินนานผิดปกติหรือวิ่งเร็วเกินค่าที่เกมกำหนด (ไม่นับรถ วาร์ป ระบบบิน/บูสต์ของเกม)",
+	TextColor3 = Color3.fromRGB(145, 160, 200),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 11,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top
+}, pPro)
+
+Toggle(
+	pPro,
+	"เปิดตรวจจับโปร",
+	function(v)
+		S.proDetect = v
+
+		if not v then
+			proResetAll()
+		end
+	end
+)
+
+Toggle(
+	pPro,
+	"ESP โปร (แดง + ขึ้นว่าโปร)",
+	function(v)
+		S.proEsp = v
+	end,
+	true
+)
+
+Toggle(
+	pPro,
+	"แจ้งเตือนเมื่อเจอโปร",
+	function(v)
+		S.proNotify = v
+	end,
+	true
+)
+
+Toggle(
+	pPro,
+	"จำคนโปรไว้ตลอด",
+	function(v)
+		S.proSticky = v
+	end,
+	true
+)
+
+Slider(
+	pPro,
+	"ค่าเผื่อความเร็ววิ่ง (% ของ WalkSpeed)",
+	150,
+	500,
+	S.proSpeedMul,
+	function(v)
+		S.proSpeedMul = v
+	end
+)
+
+Slider(
+	pPro,
+	"ลอยนานเกิน (วินาที) ถึงนับว่าบิน",
+	2,
+	10,
+	S.proFlyTime,
+	function(v)
+		S.proFlyTime = v
+	end
+)
+
+proCountLabel = new("TextLabel", {
+	Size = UDim2.new(1, -6, 0, 20),
+	BackgroundTransparency = 1,
+	Text = "ตรวจพบโปร: 0 คน",
+	TextColor3 = Color3.fromRGB(255, 90, 90),
+	Font = FONT,
+	TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, pPro)
+
+proListFrame = new("ScrollingFrame", {
+	Size = UDim2.new(1, -6, 0, 90),
+	BackgroundColor3 = C.row,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
+}, pPro)
+
+corner(proListFrame, 6)
+
+new("UIListLayout", {
+	Padding = UDim.new(0, 4)
+}, proListFrame)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4)
+}, proListFrame)
+
+Button(
+	pPro,
+	"ล้างรายชื่อโปร",
+	function()
+		for p in pairs(proFlagged) do
+			proFlagged[p] = nil
+
+			if p.Character then
+				proClearESP(p.Character)
+			end
+		end
+
+		for _, st in pairs(proTrack) do
+			st.speedStreak = 0
+			st.flyStreak = 0
+		end
+
+		proRefreshUI()
+	end
+)
+
+proRefreshUI()
 
 -- Aim
 local pAim = Page("ล็อคเป้า")
@@ -2675,11 +3417,6 @@ Toggle(
 	setAntiLag
 )
 
-Button(
-	pTool,
-	"ย้ายไปเซิร์ฟคนน้อย",
-	serverHop
-)
 
 
 -- Initial tab
@@ -2704,6 +3441,9 @@ local function cleanup()
 	setInvisible(false)
 	setClickTeleport(false)
 	setPickupOnce(false)
+
+	S.proDetect = false
+	proResetAll()
 
 	pcall(function()
 		RunService:UnbindFromRenderStep(
