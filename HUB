@@ -1,4 +1,4 @@
---// ขอโทษ HUB v3.4
+--// ขอโทษ HUB V4.0
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -14,6 +14,8 @@ local LocalizationService = game:GetService("LocalizationService")
 local LP = Players.LocalPlayer
 
 local ICON_ID = ""
+
+local VERSION = "V4.0"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -32,7 +34,7 @@ local S = {
 	lockP = false, lockN = false, teamCheck = true, fov = 150,
 	hitbox = false, hitSize = 10,
 	hitboxP = false, hitSizeP = 8, hitTeam = true,
-	zoom = false, zoomVal = 60,
+	zoom = false,
 	spirit = false, spiritSpeed = 60,
 	light = false, lightVal = 3,
 	car = false, carVal = 100,
@@ -42,6 +44,7 @@ local S = {
 	clickTp = false,
 	pickupOnce = false,
 	espLine = false,
+	antiLag = false,
 }
 
 local C = {
@@ -250,7 +253,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -70, 1, 0),
 	Position = UDim2.fromOffset(12, 0),
 	BackgroundTransparency = 1,
-	Text = "ขอโทษ HUB | v3.4",
+	Text = "ขอโทษ HUB | " .. VERSION,
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 16,
@@ -1247,128 +1250,523 @@ local function warpToSelected()
 	end
 end
 
--- ชนคนกระเด็น
-local function flingSelected()
-	if not (
-		selectedPlr
-		and selectedPlr.Character
-	) then
+-- ชนคนกระเด็น (ชนต่อเนื่องจนกว่าเป้าหมายจะกระเด็น แล้วกลับจุดเดิม)
+local FLING_TIMEOUT = 8      -- วินาทีสูงสุดที่พยายามชน
+local FLING_DISTANCE = 250   -- เป้าหมายห่างจากจุดเริ่มเกินนี้ = กระเด็นแล้ว
+local FLING_SPEED = 400      -- ความเร็วเป้าหมายเกินนี้ = กระเด็นแล้ว
+local flinging = false
 
+local function flingSelected()
+	if flinging then
+		notify("กำลังชนอยู่ รอสักครู่")
+		return
+	end
+
+	local target = selectedPlr
+
+	if not (target and target.Character) then
 		notify("ยังไม่ได้เลือกผู้เล่น")
 		return
 	end
 
-	local targetRoot =
-		selectedPlr.Character:
-		FindFirstChild("HumanoidRootPart")
-
-	local _, _, root = getChar()
-
-	if not (targetRoot and root) then
+	if S.fly or S.spirit then
+		notify("ปิดบิน/ถอดจิตก่อนใช้ชนคน")
 		return
 	end
 
+	local _, hum, root = getChar()
+	local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+
+	if not (hum and root and tRoot) then
+		notify("หาตัวละครไม่เจอ")
+		return
+	end
+
+	flinging = true
+
 	local original = root.CFrame
+	local startPos = tRoot.Position
+	local hadNoclip = S.noclip
+	local oldHeight = Workspace.FallenPartsDestroyHeight
+	local result = "timeout"
 
-	root.CFrame =
-		targetRoot.CFrame *
-		CFrame.new(0, 0, -2)
+	-- noclip ต้องปิดชั่วคราว ไม่งั้นตัวเราจะไม่ชนเป้าหมาย
+	if hadNoclip then
+		setNoclip(false)
+	end
 
-	local bv = Instance.new("BodyVelocity")
+	pcall(function()
+		Workspace.FallenPartsDestroyHeight = -1e9
+	end)
 
-	bv.MaxForce =
-		Vector3.new(1e9, 1e9, 1e9)
+	notify("กำลังชน...")
 
-	bv.Velocity =
-		targetRoot.CFrame.LookVector * 180
-		+ Vector3.new(0, 35, 0)
+	local offsets = {
+		Vector3.new(0, 1.5, 0),
+		Vector3.new(0, -1.5, 0),
+		Vector3.new(0, 0.5, 2),
+		Vector3.new(0, 0.5, -2)
+	}
 
-	bv.Parent = root
+	pcall(function()
+		local t0 = os.clock()
+		local step = 0
 
-	task.wait(0.12)
+		while gui.Parent and os.clock() - t0 < FLING_TIMEOUT do
+			local tChar = target.Character
+			local tr = tChar and tChar:FindFirstChild("HumanoidRootPart")
+			local th = tChar and tChar:FindFirstChildOfClass("Humanoid")
+			local _, myHum, myRoot = getChar()
 
-	bv:Destroy()
+			if not (tr and th and myHum and myRoot) or myHum.Health <= 0 then
+				result = "lost"
+				break
+			end
 
-	if root and root.Parent then
-		root.CFrame = original
+			-- กระเด็นแล้ว: เป้าหมายถูกเหวี่ยงห่าง หรือความเร็วสูงผิดปกติ
+			if (tr.Position - startPos).Magnitude > FLING_DISTANCE
+				or tr.AssemblyLinearVelocity.Magnitude > FLING_SPEED then
+
+				result = "flung"
+				break
+			end
+
+			step += 1
+			local off = offsets[(step % #offsets) + 1]
+			local lead = th.MoveDirection * (tr.AssemblyLinearVelocity.Magnitude / 4)
+
+			myRoot.CFrame = tr.CFrame * CFrame.new(off) + lead
+			myRoot.AssemblyLinearVelocity = Vector3.new(9e7, 9e8, 9e7)
+			myRoot.AssemblyAngularVelocity = Vector3.new(9e8, 9e8, 9e8)
+
+			RunService.Heartbeat:Wait()
+		end
+	end)
+
+	-- กลับจุดเดิม: ล้างแรงทั้งหมดแล้วย้ายกลับหลายเฟรมจนนิ่ง
+	pcall(function()
+		for _ = 1, 20 do
+			local c, _, r = getChar()
+			if not (c and r) then break end
+
+			for _, part in ipairs(c:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+
+			r.CFrame = original
+			RunService.Heartbeat:Wait()
+		end
+
+		local _, h = getChar()
+		if h then
+			h:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end)
+
+	pcall(function()
+		Workspace.FallenPartsDestroyHeight = oldHeight
+	end)
+
+	if hadNoclip and gui.Parent then
+		setNoclip(true)
+	end
+
+	flinging = false
+
+	if result == "flung" then
+		notify("ชนกระเด็นสำเร็จ กลับจุดเดิมแล้ว")
+	elseif result == "lost" then
+		notify("เป้าหมายหายไป กลับจุดเดิมแล้ว")
+	else
+		notify("ชนแล้วไม่กระเด็น (หมดเวลา) กลับจุดเดิมแล้ว")
 	end
 end
 
--- Anti Lag
-local function antiLag()
-	notify("กำลังลดแลค...")
+-- Anti Lag (เปิด/ปิดได้ ปิดแล้วคืนค่าเดิม)
+local antiLagGen = 0
+local antiLagConn
+local antiLagOrig = {}
+local antiLagSaved = {
+	post = {},
+	fx = setmetatable({}, {__mode = "k"}),
+	parts = setmetatable({}, {__mode = "k"})
+}
 
-	task.spawn(function()
+local function antiLagOne(d)
+	if d:IsA("ParticleEmitter") or d:IsA("Trail") then
+		if antiLagSaved.fx[d] == nil then
+			antiLagSaved.fx[d] = d.Enabled
+		end
+
+		d.Enabled = false
+
+	elseif d:IsA("BasePart") and not d:IsA("Terrain") then
+		if antiLagSaved.parts[d] == nil then
+			antiLagSaved.parts[d] = {d.Material, d.CastShadow}
+		end
+
+		d.Material = Enum.Material.Plastic
+		d.CastShadow = false
+	end
+end
+
+local function setAntiLag(v)
+	S.antiLag = v
+	antiLagGen += 1
+	local gen = antiLagGen
+
+	if antiLagConn then
+		antiLagConn:Disconnect()
+		antiLagConn = nil
+	end
+
+	if v then
+		notify("กำลังลดแลค...")
+
 		pcall(function()
-			settings().Rendering.QualityLevel =
-				Enum.QualityLevel.Level01
+			if antiLagOrig.quality == nil then
+				antiLagOrig.quality = settings().Rendering.QualityLevel
+			end
+
+			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
 		end)
+
+		if antiLagOrig.shadows == nil then
+			antiLagOrig.shadows = Lighting.GlobalShadows
+		end
 
 		Lighting.GlobalShadows = false
 
 		for _, e in ipairs(Lighting:GetChildren()) do
 			if e:IsA("PostEffect") then
+				if antiLagSaved.post[e] == nil then
+					antiLagSaved.post[e] = e.Enabled
+				end
+
 				e.Enabled = false
 			end
 		end
 
-		for _, d in ipairs(workspace:GetDescendants()) do
-			if d:IsA("ParticleEmitter")
-				or d:IsA("Trail") then
+		antiLagConn = track(
+			Workspace.DescendantAdded:Connect(function(d)
+				task.defer(function()
+					if S.antiLag then
+						pcall(antiLagOne, d)
+					end
+				end)
+			end)
+		)
 
-				d.Enabled = false
+		task.spawn(function()
+			local n = 0
 
-			elseif d:IsA("BasePart") then
+			for _, d in ipairs(Workspace:GetDescendants()) do
+				if gen ~= antiLagGen then return end
 
-				d.Material = Enum.Material.Plastic
-				d.CastShadow = false
+				pcall(antiLagOne, d)
+
+				n += 1
+				if n % 400 == 0 then
+					task.wait()
+				end
 			end
+
+			if gen == antiLagGen then
+				notify("ลดแลคเสร็จแล้ว")
+			end
+		end)
+
+	else
+		pcall(function()
+			if antiLagOrig.quality ~= nil then
+				settings().Rendering.QualityLevel = antiLagOrig.quality
+			end
+		end)
+
+		antiLagOrig.quality = nil
+
+		if antiLagOrig.shadows ~= nil then
+			Lighting.GlobalShadows = antiLagOrig.shadows
+			antiLagOrig.shadows = nil
 		end
 
-		notify("ลดแลคเสร็จแล้ว")
+		for e, en in pairs(antiLagSaved.post) do
+			if e.Parent then
+				e.Enabled = en
+			end
+
+			antiLagSaved.post[e] = nil
+		end
+
+		task.spawn(function()
+			local n = 0
+
+			for d, en in pairs(antiLagSaved.fx) do
+				if gen ~= antiLagGen then return end
+
+				if d.Parent then
+					pcall(function()
+						d.Enabled = en
+					end)
+				end
+
+				antiLagSaved.fx[d] = nil
+
+				n += 1
+				if n % 400 == 0 then
+					task.wait()
+				end
+			end
+
+			for d, o in pairs(antiLagSaved.parts) do
+				if gen ~= antiLagGen then return end
+
+				if d.Parent then
+					pcall(function()
+						d.Material = o[1]
+						d.CastShadow = o[2]
+					end)
+				end
+
+				antiLagSaved.parts[d] = nil
+
+				n += 1
+				if n % 400 == 0 then
+					task.wait()
+				end
+			end
+
+			if gen == antiLagGen then
+				notify("ปิดลดแลคแล้ว คืนค่าเดิมเรียบร้อย")
+			end
+		end)
+	end
+end
+
+-- Server Hop (มี UI แจ้งสถานะตอนกด)
+local hopping = false
+local hopAttempt = 0
+
+local hopFrame = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 50),
+	Size = UDim2.fromOffset(460, 140),
+	BackgroundColor3 = C.bg,
+	BorderSizePixel = 0,
+	Active = true,
+	Visible = false,
+	ZIndex = 60
+}, overlay)
+
+corner(hopFrame, 18)
+stroke(hopFrame, C.accent, 2.5)
+
+local hopText = new("TextLabel", {
+	Size = UDim2.new(1, -32, 0, 84),
+	Position = UDim2.fromOffset(16, 12),
+	BackgroundTransparency = 1,
+	Text = "",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 26,
+	TextWrapped = true,
+	ZIndex = 61
+}, hopFrame)
+
+local hopTrack = new("Frame", {
+	Position = UDim2.new(0, 16, 1, -32),
+	Size = UDim2.new(1, -32, 0, 14),
+	BackgroundColor3 = C.off,
+	BorderSizePixel = 0,
+	ClipsDescendants = true,
+	ZIndex = 61
+}, hopFrame)
+
+corner(hopTrack, 7)
+
+local hopBar = new("Frame", {
+	Position = UDim2.fromScale(-0.4, 0),
+	Size = UDim2.fromScale(0.4, 1),
+	BackgroundColor3 = C.accent,
+	BorderSizePixel = 0,
+	ZIndex = 62
+}, hopTrack)
+
+corner(hopBar, 7)
+
+task.spawn(function()
+	while gui.Parent do
+		if hopFrame.Visible and hopTrack.Visible then
+			hopBar.Position = UDim2.fromScale(-0.4, 0)
+
+			local tw = TweenService:Create(
+				hopBar,
+				TweenInfo.new(0.9, Enum.EasingStyle.Linear),
+				{Position = UDim2.fromScale(1, 0)}
+			)
+
+			tw:Play()
+			tw.Completed:Wait()
+		else
+			task.wait(0.2)
+		end
+	end
+end)
+
+local function showHop(text)
+	hopText.Text = text
+	hopTrack.Visible = true
+	hopFrame.Visible = true
+end
+
+local function failHop(text)
+	hopText.Text = text
+	hopTrack.Visible = false
+	hopFrame.Visible = true
+
+	task.delay(2.5, function()
+		if not hopping then
+			hopFrame.Visible = false
+		end
 	end)
 end
 
--- Server Hop
-local function serverHop()
-	notify("กำลังหาเซิร์ฟเวอร์...")
-
+local function httpGet(url)
 	local ok, res = pcall(function()
-		return game:HttpGet(
-			("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):
-			format(game.PlaceId)
-		)
+		return game:HttpGet(url)
 	end)
 
-	if not ok then
-		notify("ดึงรายชื่อเซิร์ฟไม่สำเร็จ")
-		return
+	if ok and type(res) == "string" and res ~= "" then
+		return res
 	end
 
-	local ok2, data =
-		pcall(function()
-			return HttpService:JSONDecode(res)
-		end)
+	local req = (syn and syn.request) or request or http_request
 
-	if ok2 and data.data then
-		for _, s in ipairs(data.data) do
+	if req then
+		local ok2, r = pcall(req, {Url = url, Method = "GET"})
 
-			if s.id ~= game.JobId
-				and s.playing < s.maxPlayers then
-
-				TeleportService:
-					TeleportToPlaceInstance(
-						game.PlaceId,
-						s.id,
-						LP
-					)
-
-				return
-			end
+		if ok2 and r and r.Body then
+			return r.Body
 		end
 	end
 
-	notify("ไม่พบเซิร์ฟเวอร์")
+	return nil
+end
+
+local function fetchLowServers()
+	local url = (
+		"https://games.roblox.com/v1/games/%d/servers/Public"
+		.. "?sortOrder=Asc&excludeFullGames=true&limit=100"
+	):format(game.PlaceId)
+
+	local body = httpGet(url)
+	if not body then return nil end
+
+	local ok, data = pcall(function()
+		return HttpService:JSONDecode(body)
+	end)
+
+	if not (ok and type(data) == "table" and type(data.data) == "table") then
+		return nil
+	end
+
+	local list = {}
+
+	for _, s in ipairs(data.data) do
+		if s.id ~= game.JobId
+			and s.playing
+			and s.maxPlayers
+			and s.playing < s.maxPlayers then
+
+			table.insert(list, s)
+		end
+	end
+
+	table.sort(list, function(a, b)
+		return a.playing < b.playing
+	end)
+
+	return list
+end
+
+local function serverHop()
+	if hopping then
+		return
+	end
+
+	hopping = true
+	showHop("กำลังย้ายไปเซิร์ฟเวอร์คนน้อย...")
+
+	task.spawn(function()
+		local list = fetchLowServers()
+
+		if not list or #list == 0 then
+			hopping = false
+			failHop(list and "ไม่พบเซิร์ฟเวอร์ที่ย้ายได้" or "ดึงรายชื่อเซิร์ฟไม่สำเร็จ")
+			return
+		end
+
+		local idx = 0
+		local failConn
+		local tryNext
+
+		tryNext = function()
+			idx += 1
+			hopAttempt += 1
+			local mine = hopAttempt
+
+			local s = list[idx]
+
+			if not s or idx > 6 then
+				if failConn then
+					failConn:Disconnect()
+				end
+
+				hopping = false
+				failHop("ย้ายเซิร์ฟเวอร์ไม่สำเร็จ ลองใหม่อีกครั้ง")
+				return
+			end
+
+			showHop(
+				("กำลังย้ายไปเซิร์ฟเวอร์คนน้อย... (%d/%d คน)"):format(
+					s.playing,
+					s.maxPlayers
+				)
+			)
+
+			local ok = pcall(function()
+				TeleportService:TeleportToPlaceInstance(
+					game.PlaceId,
+					s.id,
+					LP
+				)
+			end)
+
+			if not ok then
+				tryNext()
+				return
+			end
+
+			task.delay(15, function()
+				if hopping and hopAttempt == mine then
+					tryNext()
+				end
+			end)
+		end
+
+		failConn = track(
+			TeleportService.TeleportInitFailed:Connect(function(plr)
+				if plr == LP and hopping then
+					tryNext()
+				end
+			end)
+		)
+
+		tryNext()
+	end)
 end
 
 -- Status system
@@ -1596,14 +1994,15 @@ track(
 	end)
 )
 
--- Zoom out
+-- Zoom out (เปิดแล้วซูมออกได้ไม่จำกัด ไม่ต้องปรับค่า)
+local ZOOM_MAX = 1000000
 local origZoom = {}
 
 local function applyZoom()
 	if not S.zoom then return end
 	pcall(function()
-		LP.CameraMaxZoomDistance = math.max(S.zoomVal, 0.5)
-		LP.CameraMinZoomDistance = math.max(S.zoomVal, 0.5)
+		LP.CameraMaxZoomDistance = ZOOM_MAX
+		LP.CameraMinZoomDistance = 0.5
 	end)
 end
 
@@ -1615,9 +2014,7 @@ local function setZoom(v)
 			origZoom.max = LP.CameraMaxZoomDistance
 			origZoom.min = LP.CameraMinZoomDistance
 		end
-		LP.CameraMaxZoomDistance = math.max(S.zoomVal, 0.5)
-		LP.CameraMinZoomDistance = 0.5
-		task.defer(applyZoom)
+		applyZoom()
 	elseif origZoom.max then
 		LP.CameraMinZoomDistance = origZoom.min
 		LP.CameraMaxZoomDistance = origZoom.max
@@ -1633,6 +2030,7 @@ end))
 local spiritCF, spiritYaw, spiritPitch = nil, 0, 0
 local spiritRoot, spiritWasAnchored
 local lookHeld = false
+local spiritPanel, setSpiritToggle
 
 local function getMoveVector()
 	local ok, v = pcall(function()
@@ -1679,6 +2077,10 @@ local function stopSpirit()
 
 	pcall(function() RunService:UnbindFromRenderStep("KTHubSpirit") end)
 
+	if spiritPanel then
+		spiritPanel.Visible = false
+	end
+
 	if spiritRoot and spiritRoot.Parent then
 		spiritRoot.Anchored = spiritWasAnchored or false
 	end
@@ -1721,6 +2123,10 @@ local function startSpirit()
 	cam.CameraType = Enum.CameraType.Scriptable
 	flyPad.Visible = true
 
+	if spiritPanel then
+		spiritPanel.Visible = true
+	end
+
 	RunService:BindToRenderStep("KTHubSpirit", Enum.RenderPriority.Camera.Value + 2, function(dt)
 		local c = Workspace.CurrentCamera
 		if not (S.spirit and c) then return end
@@ -1748,14 +2154,6 @@ local function startSpirit()
 	return true
 end
 
-local function setSpirit(v)
-	if v then
-		startSpirit()
-	else
-		stopSpirit()
-	end
-end
-
 local function warpToSpirit()
 	if not S.spirit then
 		notify("เปิดถอดจิตก่อน")
@@ -1771,6 +2169,87 @@ local function warpToSpirit()
 	root.Anchored = true
 	notify("วาร์ปตัวไปที่กล้องแล้ว")
 end
+
+-- UI แยกของถอดจิต: เปิดถอดจิต = UI โผล่ / ปิดถอดจิต = UI หาย
+spiritPanel = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 60),
+	Size = UDim2.fromOffset(250, 134),
+	BackgroundColor3 = C.bg,
+	BorderSizePixel = 0,
+	Active = true,
+	Visible = false
+}, gui)
+
+corner(spiritPanel, 12)
+stroke(spiritPanel, C.accent, 1.5)
+
+local spHeader = new("Frame", {
+	Size = UDim2.new(1, 0, 0, 32),
+	BackgroundTransparency = 1
+}, spiritPanel)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -44, 1, 0),
+	Position = UDim2.fromOffset(12, 0),
+	BackgroundTransparency = 1,
+	Text = "ถอดจิต",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 15,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, spHeader)
+
+local spClose = new("TextButton", {
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -8, 0.5, 0),
+	Size = UDim2.fromOffset(26, 22),
+	BackgroundColor3 = Color3.fromRGB(190, 50, 60),
+	Text = "X",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 14
+}, spHeader)
+
+corner(spClose, 5)
+
+spClose.MouseButton1Click:Connect(function()
+	if setSpiritToggle then
+		setSpiritToggle(false)
+	else
+		stopSpirit()
+	end
+end)
+
+makeDraggable(spHeader, spiritPanel)
+
+local spBody = new("Frame", {
+	Size = UDim2.new(1, 0, 1, -36),
+	Position = UDim2.fromOffset(0, 34),
+	BackgroundTransparency = 1
+}, spiritPanel)
+
+new("UIListLayout", {
+	Padding = UDim.new(0, 5),
+	HorizontalAlignment = Enum.HorizontalAlignment.Center
+}, spBody)
+
+Slider(
+	spBody,
+	"ความเร็วถอดจิต",
+	5,
+	500,
+	S.spiritSpeed,
+	function(v)
+		S.spiritSpeed = v
+	end
+)
+
+Button(
+	spBody,
+	"วาร์ปตัวไปที่กล้อง",
+	warpToSpirit
+)
 
 
 -- BUILD PAGES
@@ -1800,7 +2279,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 20),
 	Position = UDim2.fromOffset(12, 36),
 	BackgroundTransparency = 1,
-	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB v3.4",
+	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB " .. VERSION,
 	TextColor3 = Color3.fromRGB(145, 160, 200),
 	Font = Enum.Font.GothamMedium,
 	TextSize = 11,
@@ -1897,60 +2376,35 @@ Toggle(
 	setNoclip
 )
 
+Toggle(
+	pMain,
+	"ล่องหน",
+	setInvisible
+)
+
 Label(pMain, "กล้อง")
 
 Toggle(
 	pMain,
-	"ซูมออกไกล",
+	"ซูมออกไม่จำกัด",
 	setZoom
-)
-
-Slider(
-	pMain,
-	"ระยะซูม",
-	10,
-	1000,
-	S.zoomVal,
-	function(v)
-		S.zoomVal = v
-		applyZoom()
-		if S.zoom then
-			pcall(function() LP.CameraMaxZoomDistance = v end)
-		end
-	end
 )
 
 Label(pMain, "ถอดจิต")
 
-local setSpiritToggle
 setSpiritToggle = Toggle(
 	pMain,
-	"ถอดจิต (กล้องอิสระ)",
-	setSpirit
-)
-
-Slider(
-	pMain,
-	"ความเร็วถอดจิต",
-	5,
-	500,
-	S.spiritSpeed,
+	"ถอดจิต (เปิดแล้วมี UI แยก)",
 	function(v)
-		S.spiritSpeed = v
-	end
-)
-
-Button(
-	pMain,
-	"วาร์ปตัวไปที่กล้อง",
-	warpToSpirit
-)
-
-Button(
-	pMain,
-	"ออกจากถอดจิต (กลับตัว)",
-	function()
-		setSpiritToggle(false)
+		if v then
+			if not startSpirit() then
+				task.defer(function()
+					setSpiritToggle(false)
+				end)
+			end
+		else
+			stopSpirit()
+		end
 	end
 )
 
@@ -2151,7 +2605,7 @@ Button(
 
 Button(
 	pTp,
-	"ชนคนกระเด็น (แล้วกลับจุดเดิม)",
+	"ชนคนจนกระเด็น (แล้วกลับจุดเดิม)",
 	flingSelected
 )
 
@@ -2169,12 +2623,6 @@ local pTool = Page("เครื่องมือ")
 Label(
 	pTool,
 	"ระบบเพิ่มเติม"
-)
-
-Toggle(
-	pTool,
-	"ล่องหน",
-	setInvisible
 )
 
 Toggle(
@@ -2221,10 +2669,10 @@ Slider(
 	end
 )
 
-Button(
+Toggle(
 	pTool,
 	"ลดอาการแลค (Anti-Lag)",
-	antiLag
+	setAntiLag
 )
 
 Button(
@@ -2249,6 +2697,8 @@ local function cleanup()
 	stopSpirit()
 	setZoom(false)
 	hideAimLine()
+	setAntiLag(false)
+	hopping = false
 
 	setNoclip(false)
 	setInvisible(false)
@@ -2281,5 +2731,5 @@ env.__KTHubCleanup = cleanup
 closeBtn.MouseButton1Click:Connect(cleanup)
 
 notify(
-	"ขอโทษ HUB v3.4 โหลดเสร็จเรียบร้อย!"
+	"ขอโทษ HUB " .. VERSION .. " โหลดเสร็จเรียบร้อย!"
 )
