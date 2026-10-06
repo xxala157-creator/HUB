@@ -1,4 +1,4 @@
---// ขอโทษ HUB V4.1
+--// ขอโทษ HUB V4.2
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,7 +15,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.1"
+local VERSION = "V4.2"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -330,16 +330,80 @@ minBtn.MouseButton1Click:Connect(function()
 	openBtn.Visible = true
 end)
 
-openBtn.MouseButton1Click:Connect(function()
-	main.Visible = true
-	openBtn.Visible = false
-end)
+-- ปุ่มตอนพับเก็บ: ลากเลื่อนไปมาได้ / แตะเบา ๆ เพื่อเปิดเมนู
+do
+	local DRAG_THRESHOLD = 6
+	local pressing, moved = false, false
+	local startInput, startPos
+
+	local function clampPos(x, y)
+		local vp = gui.AbsoluteSize
+		local sz = openBtn.AbsoluteSize
+
+		return math.clamp(x, 0, math.max(vp.X - sz.X, 0)),
+			math.clamp(y, 0, math.max(vp.Y - sz.Y, 0))
+	end
+
+	track(openBtn.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch then
+
+			pressing = true
+			moved = false
+			startInput = i.Position
+			startPos = openBtn.Position
+		end
+	end))
+
+	track(UIS.InputChanged:Connect(function(i)
+		if not pressing then return end
+
+		if i.UserInputType == Enum.UserInputType.MouseMovement
+			or i.UserInputType == Enum.UserInputType.Touch then
+
+			local d = i.Position - startInput
+
+			if not moved and d.Magnitude >= DRAG_THRESHOLD then
+				moved = true
+			end
+
+			if moved then
+				local x, y = clampPos(
+					startPos.X.Offset + d.X,
+					startPos.Y.Offset + d.Y
+				)
+
+				openBtn.Position = UDim2.fromOffset(x, y)
+			end
+		end
+	end))
+
+	track(UIS.InputEnded:Connect(function(i)
+		if not pressing then return end
+
+		if i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch then
+
+			pressing = false
+
+			-- ถ้าไม่ได้ลาก = แตะ → เปิดเมนู
+			if not moved then
+				main.Visible = true
+				openBtn.Visible = false
+			end
+		end
+	end))
+end
 
 -- Sidebar
-local sidebar = new("Frame", {
+local sidebar = new("ScrollingFrame", {
 	Size = UDim2.new(0, 105, 1, -44),
 	Position = UDim2.fromOffset(8, 36),
-	BackgroundColor3 = C.panel
+	BackgroundColor3 = C.panel,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 2,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
 }, main)
 
 corner(sidebar, 10)
@@ -3417,6 +3481,164 @@ Toggle(
 	setAntiLag
 )
 
+
+
+-- ===== แท็บ: สคริป (ตัวรันสคริป) =====
+local pScript = Page("สคริป")
+
+local SC_INFO = Color3.fromRGB(145, 160, 200)
+local SC_OK = Color3.fromRGB(80, 220, 120)
+local SC_ERR = Color3.fromRGB(255, 90, 100)
+local SC_WARN = Color3.fromRGB(255, 200, 80)
+
+local scCard = new("Frame", {
+	Size = UDim2.new(1, -6, 0, 248),
+	BackgroundColor3 = C.row
+}, pScript)
+
+corner(scCard, 10)
+
+new("TextLabel", {
+	Size = UDim2.new(1, -20, 0, 18),
+	Position = UDim2.fromOffset(10, 6),
+	BackgroundTransparency = 1,
+	Text = "ตัวรันสคริป • วางโค้ด Lua แล้วกดรัน",
+	TextColor3 = C.accent,
+	Font = FONT,
+	TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, scCard)
+
+local scScroll = new("ScrollingFrame", {
+	Size = UDim2.new(1, -20, 0, 136),
+	Position = UDim2.fromOffset(10, 28),
+	BackgroundColor3 = C.bg,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
+}, scCard)
+
+corner(scScroll, 8)
+stroke(scScroll, C.off, 1)
+
+local scInput = new("TextBox", {
+	Size = UDim2.new(1, -6, 0, 136),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	BackgroundTransparency = 1,
+	ClearTextOnFocus = false,
+	MultiLine = true,
+	TextWrapped = true,
+	Text = "",
+	PlaceholderText = "-- วางสคริปตรงนี้ แล้วกดปุ่มรัน",
+	PlaceholderColor3 = Color3.fromRGB(120, 130, 170),
+	TextColor3 = C.text,
+	Font = Enum.Font.Code,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top
+}, scScroll)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 6),
+	PaddingLeft = UDim.new(0, 8),
+	PaddingRight = UDim.new(0, 8),
+	PaddingBottom = UDim.new(0, 6)
+}, scInput)
+
+local scRun = new("TextButton", {
+	Size = UDim2.new(0.6, -14, 0, 30),
+	Position = UDim2.fromOffset(10, 172),
+	BackgroundColor3 = C.accent,
+	Text = "รัน",
+	TextColor3 = Color3.new(1, 1, 1),
+	Font = FONT,
+	TextSize = 14
+}, scCard)
+
+corner(scRun, 6)
+
+local scClear = new("TextButton", {
+	Size = UDim2.new(0.4, -14, 0, 30),
+	Position = UDim2.new(0.6, 4, 0, 172),
+	BackgroundColor3 = C.off,
+	Text = "ล้าง",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 14
+}, scCard)
+
+corner(scClear, 6)
+
+local scStatus = new("TextLabel", {
+	Size = UDim2.new(1, -20, 0, 36),
+	Position = UDim2.fromOffset(10, 208),
+	BackgroundTransparency = 1,
+	Text = "พร้อมรัน",
+	TextColor3 = SC_INFO,
+	Font = Enum.Font.GothamMedium,
+	TextSize = 12,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top
+}, scCard)
+
+local function setScStatus(text, color)
+	text = tostring(text)
+
+	if #text > 200 then
+		text = text:sub(1, 200) .. "..."
+	end
+
+	scStatus.Text = text
+	scStatus.TextColor3 = color or SC_INFO
+end
+
+local function runUserScript()
+	local src = scInput.Text
+
+	if not src or src:match("^%s*$") then
+		setScStatus("ยังไม่ได้ใส่สคริป", SC_WARN)
+		return
+	end
+
+	local ls = loadstring or (env and env.loadstring)
+
+	if not ls then
+		setScStatus("ตัวรันนี้ไม่รองรับ loadstring", SC_ERR)
+		notify("ไม่รองรับ loadstring")
+		return
+	end
+
+	local fn, compileErr = ls(src)
+
+	if not fn then
+		setScStatus("โค้ดผิดรูปแบบ: " .. tostring(compileErr), SC_ERR)
+		notify("สคริปมีข้อผิดพลาด")
+		return
+	end
+
+	setScStatus("กำลังรัน...", SC_INFO)
+
+	task.spawn(function()
+		local ok, err = pcall(fn)
+
+		if ok then
+			setScStatus("รันสำเร็จ", SC_OK)
+			notify("รันสคริปสำเร็จ")
+		else
+			setScStatus("รันแล้วเกิดข้อผิดพลาด: " .. tostring(err), SC_ERR)
+			notify("สคริปมีข้อผิดพลาด")
+		end
+	end)
+end
+
+scRun.MouseButton1Click:Connect(runUserScript)
+
+scClear.MouseButton1Click:Connect(function()
+	scInput.Text = ""
+	setScStatus("ล้างแล้ว", SC_INFO)
+end)
 
 
 -- Initial tab
