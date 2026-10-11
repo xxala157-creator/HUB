@@ -1,4 +1,5 @@
---// ขอโทษ HUB V4.6
+--// ขอโทษ HUB V4.7
+-- V4.7: + Anti-AFK, บันทึก/โหลดการตั้งค่า, Rejoin, คัดลอกลิงก์เซิร์ฟเวอร์, ตัวแกะสคริป (รวมในแท็บสคริป)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,7 +16,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.6"
+local VERSION = "V4.7"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -25,6 +26,9 @@ local function track(c)
 	table.insert(conns, c)
 	return c
 end
+
+-- V4.7: ที่ลงทะเบียนสวิตช์/สไลเดอร์ (ใช้บันทึก/โหลดการตั้งค่า) + รายการที่ต้องปิดตอน cleanup
+local Ext = {toggles = {}, sliders = {}, cleanups = {}}
 
 local S = {
 	speed = false, speedVal = 50,
@@ -549,7 +553,14 @@ local function Toggle(pg, text, cb, default)
 		):Play()
 
 		cb(on)
+
+		if Ext.changed then Ext.changed() end
 	end
+
+	Ext.toggles[text] = {
+		set = set,
+		get = function() return on end
+	}
 
 	sw.MouseButton1Click:Connect(function()
 		set(not on)
@@ -606,6 +617,7 @@ local function Slider(pg, text, min, max, def, cb)
 	corner(knob, 6)
 
 	local dragging = false
+	local cur = def
 
 	local function update(x)
 		local rel = math.clamp(
@@ -620,8 +632,27 @@ local function Slider(pg, text, min, max, def, cb)
 
 		fill.Size = UDim2.fromScale(rel, 1)
 		lbl.Text = text .. ": " .. v
+		cur = v
 		cb(v)
+
+		if Ext.changed then Ext.changed() end
 	end
+
+	-- V4.7: ตั้งค่าจากโค้ด (ใช้ตอนโหลดการตั้งค่า)
+	local function setValue(v)
+		v = math.clamp(math.floor((tonumber(v) or cur) + 0.5), min, max)
+		cur = v
+		fill.Size = UDim2.fromScale((v - min) / (max - min), 1)
+		lbl.Text = text .. ": " .. v
+		cb(v)
+
+		if Ext.changed then Ext.changed() end
+	end
+
+	Ext.sliders[text] = {
+		set = setValue,
+		get = function() return cur end
+	}
 
 	bar.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
@@ -647,6 +678,8 @@ local function Slider(pg, text, min, max, def, cb)
 			dragging = false
 		end
 	end))
+
+	return setValue
 end
 
 local function Button(pg, text, cb)
@@ -3684,6 +3717,116 @@ Button(
 	serverHop
 )
 
+-- V4.7: เข้าเซิร์ฟเวอร์เดิมใหม่ (Rejoin) + คัดลอกลิงก์เซิร์ฟเวอร์
+function Ext.server()
+	local rejoining = false
+
+	local function copyText(text)
+		local fn = setclipboard or toclipboard
+			or (env and env.setclipboard)
+			or (syn and syn.write_clipboard)
+
+		if type(fn) ~= "function" then
+			return false
+		end
+
+		return (pcall(fn, text))
+	end
+
+	track(TeleportService.TeleportInitFailed:Connect(function(plr)
+		if plr == LP and rejoining then
+			rejoining = false
+			notify("เข้าเซิร์ฟเวอร์เดิมไม่สำเร็จ")
+		end
+	end))
+
+	local function rejoin()
+		if rejoining or hopping then return end
+
+		rejoining = true
+
+		local alone = #Players:GetPlayers() <= 1
+
+		notify(
+			alone
+				and "เซิร์ฟเวอร์มีคนเดียว กำลังเข้าเซิร์ฟเวอร์ใหม่..."
+				or "กำลังเข้าเซิร์ฟเวอร์เดิมใหม่..."
+		)
+
+		local ok = pcall(function()
+			if alone or game.JobId == "" then
+				TeleportService:Teleport(game.PlaceId, LP)
+			else
+				TeleportService:TeleportToPlaceInstance(
+					game.PlaceId,
+					game.JobId,
+					LP
+				)
+			end
+		end)
+
+		if not ok then
+			rejoining = false
+			notify("เข้าเซิร์ฟเวอร์ใหม่ไม่สำเร็จ")
+			return
+		end
+
+		task.delay(20, function()
+			rejoining = false
+		end)
+	end
+
+	Button(
+		pServer,
+		"เข้าเซิร์ฟเวอร์เดิมใหม่ (Rejoin)",
+		rejoin
+	)
+
+	Button(
+		pServer,
+		"คัดลอกลิงก์เซิร์ฟเวอร์",
+		function()
+			if game.JobId == "" then
+				notify("ไม่พบ JobId ของเซิร์ฟเวอร์นี้")
+				return
+			end
+
+			local link = (
+				"roblox://experiences/start?placeId=%d&gameInstanceId=%s"
+			):format(game.PlaceId, game.JobId)
+
+			notify(
+				copyText(link)
+					and "คัดลอกลิงก์เซิร์ฟเวอร์แล้ว"
+					or "ตัวรันนี้คัดลอกให้ไม่ได้"
+			)
+		end
+	)
+
+	Button(
+		pServer,
+		"คัดลอกโค้ดเข้าเซิร์ฟเวอร์ (Lua)",
+		function()
+			if game.JobId == "" then
+				notify("ไม่พบ JobId ของเซิร์ฟเวอร์นี้")
+				return
+			end
+
+			local code = (
+				'game:GetService("TeleportService"):TeleportToPlaceInstance(%d, "%s", game.Players.LocalPlayer)'
+			):format(game.PlaceId, game.JobId)
+
+			notify(
+				copyText(code)
+					and "คัดลอกโค้ดเข้าเซิร์ฟเวอร์แล้ว"
+					or "ตัวรันนี้คัดลอกให้ไม่ได้"
+			)
+		end
+	)
+end
+
+Ext.server()
+
 Label(pServer, "รายชื่อผู้เล่นในเซิฟ")
 
 svList = new("ScrollingFrame", {
@@ -4195,6 +4338,40 @@ Toggle(
 	setAntiLag
 )
 
+-- V4.7: กันหลุดเพราะ AFK (Anti-AFK)
+function Ext.antiAFK()
+	local VirtualUser = game:GetService("VirtualUser")
+	local afkConn
+
+	local function setAntiAFK(v)
+		if afkConn then
+			afkConn:Disconnect()
+			afkConn = nil
+		end
+
+		if v then
+			afkConn = LP.Idled:Connect(function()
+				pcall(function()
+					VirtualUser:CaptureController()
+					VirtualUser:ClickButton2(Vector2.new())
+				end)
+			end)
+		end
+	end
+
+	table.insert(Ext.cleanups, function()
+		setAntiAFK(false)
+	end)
+
+	Toggle(
+		pTool,
+		"กันหลุดเมื่อ AFK (Anti-AFK)",
+		setAntiAFK
+	)
+end
+
+Ext.antiAFK()
+
 
 
 -- ===== แท็บ: สคริป (ตัวรันสคริป) =====
@@ -4355,11 +4532,795 @@ scClear.MouseButton1Click:Connect(function()
 end)
 
 
+
+-- V4.7: ตัวแกะสคริป (รวมมาจาก Script Viewer v1.1)
+-- DECODE ไม่รันโค้ดใด ๆ มีเพียงปุ่ม RUN (กดยืนยัน 2 ครั้ง) ที่รัน
+function Ext.viewer()
+	local vCard = new("Frame", {
+		Size = UDim2.new(1, -6, 0, 340),
+		BackgroundColor3 = C.row
+	}, pScript)
+
+	corner(vCard, 10)
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 18),
+		Position = UDim2.fromOffset(10, 6),
+		BackgroundTransparency = 1,
+		Text = "ตัวแกะสคริป • DECODE ดูข้างในก่อนรัน",
+		TextColor3 = C.accent,
+		Font = FONT,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, vCard)
+
+	local function makeBox(y, h, placeholder, color)
+		local sc = new("ScrollingFrame", {
+			Size = UDim2.new(1, -20, 0, h),
+			Position = UDim2.fromOffset(10, y),
+			BackgroundColor3 = C.bg,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 3,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new()
+		}, vCard)
+
+		corner(sc, 8)
+		stroke(sc, C.off, 1)
+
+		local tb = new("TextBox", {
+			Size = UDim2.new(1, -6, 0, h),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			ClearTextOnFocus = false,
+			MultiLine = true,
+			TextWrapped = true,
+			Text = "",
+			PlaceholderText = placeholder,
+			PlaceholderColor3 = Color3.fromRGB(120, 130, 170),
+			TextColor3 = color,
+			Font = Enum.Font.Code,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top
+		}, sc)
+
+		new("UIPadding", {
+			PaddingTop = UDim.new(0, 6),
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+			PaddingBottom = UDim.new(0, 6)
+		}, tb)
+
+		return tb
+	end
+
+	local vInput = makeBox(
+		28, 92,
+		"วาง Source, loadstring(...), base64 หรือ URL ที่นี่",
+		C.text
+	)
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 16),
+		Position = UDim2.fromOffset(10, 124),
+		BackgroundTransparency = 1,
+		Text = "Source ที่แกะได้ (RUN จะรันข้อความในช่องนี้)",
+		TextColor3 = SC_INFO,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, vCard)
+
+	local vOutput = makeBox(
+		142, 92,
+		"Source ที่แกะแล้วจะแสดงตรงนี้",
+		Color3.fromRGB(140, 235, 180)
+	)
+
+	local vStatus = new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 56),
+		Position = UDim2.fromOffset(10, 278),
+		BackgroundTransparency = 1,
+		Text = "พร้อมใช้งาน • ยังไม่มีการวิเคราะห์",
+		TextColor3 = SC_WARN,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top
+	}, vCard)
+
+	local function setVStatus(text, color)
+		text = tostring(text)
+
+		if #text > 220 then
+			text = text:sub(1, 220) .. "..."
+		end
+
+		vStatus.Text = text
+		vStatus.TextColor3 = color or SC_WARN
+	end
+
+	local function vButton(label, i, color)
+		local b = new("TextButton", {
+			Size = UDim2.new(0.25, -10, 0, 30),
+			Position = UDim2.new(0.25 * i, 8 - 2 * i, 0, 242),
+			BackgroundColor3 = color,
+			Text = label,
+			TextColor3 = Color3.new(1, 1, 1),
+			Font = FONT,
+			TextSize = 12
+		}, vCard)
+
+		corner(b, 6)
+		return b
+	end
+
+	local decodeBtn = vButton("DECODE", 0, C.accent)
+	local runBtn = vButton("RUN", 1, Color3.fromRGB(205, 120, 35))
+	local copyBtn = vButton("COPY", 2, Color3.fromRGB(35, 145, 100))
+	local clearBtn = vButton("CLEAR", 3, C.off)
+
+	------------------------------------------------------------
+	-- Helpers
+	------------------------------------------------------------
+	local function trim(s)
+		return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+	end
+
+	-- escape ที่รองรับใน string literal
+	local escapeMap = {
+		n = "\n", r = "\r", t = "\t",
+		a = "\a", b = "\b", f = "\f", v = "\v",
+		["\\"] = "\\", ['"'] = '"', ["'"] = "'", ["\n"] = "\n"
+	}
+
+	-- ดึงข้อความจาก loadstring("...") หรือ loadstring('...')
+	-- รองรับเฉพาะ string literal แบบง่าย
+	local function extractLoadstring(s)
+		local startPos = s:find("loadstring%s*%(")
+
+		if not startPos then
+			return nil, "ไม่พบ loadstring"
+		end
+
+		local openPos = s:find("(", startPos, true)
+
+		if not openPos then
+			return nil, "รูปแบบวงเล็บไม่ถูกต้อง"
+		end
+
+		local i = openPos + 1
+
+		while i <= #s and s:sub(i, i):match("%s") do
+			i = i + 1
+		end
+
+		local quote = s:sub(i, i)
+
+		if quote ~= '"' and quote ~= "'" then
+			return nil, "อาร์กิวเมนต์ของ loadstring ไม่ใช่ข้อความที่อ่านได้โดยตรง"
+		end
+
+		i = i + 1
+
+		local out = {}
+
+		while i <= #s do
+			local c = s:sub(i, i)
+
+			if c == "\\" then
+				local n = s:sub(i + 1, i + 1)
+
+				if n == "" then
+					return nil, "ข้อความจบด้วย escape ที่ไม่สมบูรณ์"
+				end
+
+				if n:match("%d") then
+					local digits = s:match("^%d%d?%d?", i + 1)
+					local code = tonumber(digits)
+
+					if code > 255 then
+						return nil, "escape ตัวเลขเกิน 255"
+					end
+
+					table.insert(out, string.char(code))
+					i = i + 1 + #digits
+				elseif n == "x" then
+					local hex = s:match("^%x%x", i + 2)
+
+					if not hex then
+						return nil, "escape \\x ไม่ถูกต้อง"
+					end
+
+					table.insert(out, string.char(tonumber(hex, 16)))
+					i = i + 4
+				else
+					table.insert(out, escapeMap[n] or n)
+					i = i + 2
+				end
+
+			elseif c == quote then
+				return table.concat(out), "แกะ string literal ของ loadstring สำเร็จ (ยังไม่รัน)"
+
+			else
+				table.insert(out, c)
+				i = i + 1
+			end
+		end
+
+		return nil, "ไม่พบเครื่องหมายปิดข้อความ"
+	end
+
+	-- base64 (Lua ล้วน)
+	local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	local B64_LOOKUP = {}
+
+	for i = 1, #B64 do
+		B64_LOOKUP[B64:sub(i, i)] = i - 1
+	end
+
+	local function b64decode(data)
+		data = data:gsub("%s", "")
+		data = data:gsub("=+$", "")
+
+		local out, buffer, bits = {}, 0, 0
+
+		for i = 1, #data do
+			local v = B64_LOOKUP[data:sub(i, i)]
+
+			if not v then
+				return nil
+			end
+
+			buffer = buffer * 64 + v
+			bits = bits + 6
+
+			if bits >= 8 then
+				bits = bits - 8
+
+				local byte = math.floor(buffer / 2 ^ bits)
+
+				buffer = buffer % 2 ^ bits
+				table.insert(out, string.char(byte))
+			end
+		end
+
+		return table.concat(out)
+	end
+
+	local function looksLikeBase64(s)
+		local t = s:gsub("%s", "")
+
+		if #t < 8 or #t % 4 ~= 0 then
+			return false
+		end
+
+		return t:match("^[A-Za-z0-9+/]+=?=?$") ~= nil
+	end
+
+	local function isMostlyText(s)
+		if #s == 0 then
+			return false
+		end
+
+		local bad = 0
+
+		for i = 1, #s do
+			local b = s:byte(i)
+
+			if b < 9 or (b > 13 and b < 32) then
+				bad = bad + 1
+			end
+		end
+
+		return bad / #s < 0.05
+	end
+
+	-- หา URL จาก game:HttpGet("...") หรือ URL เดี่ยว ๆ
+	local function extractUrl(s)
+		if s:find("HttpGet", 1, true) or s:match("^https?://%S+$") then
+			return s:match("https?://[^\"'%s%)]+")
+		end
+
+		return nil
+	end
+
+	------------------------------------------------------------
+	-- Actions
+	------------------------------------------------------------
+	local armedText = nil
+	local armToken = 0
+	local busy = false
+
+	local function disarm()
+		armedText = nil
+		armToken = armToken + 1
+		runBtn.Text = "RUN"
+	end
+
+	local function analyze()
+		if busy then return end
+
+		disarm()
+
+		local source = trim(vInput.Text)
+
+		if source == "" then
+			setVStatus("ERROR | กรุณาวางโค้ดก่อน", SC_ERR)
+			return
+		end
+
+		-- 1) loadstring("...") แบบ string literal
+		local extracted, message = extractLoadstring(source)
+
+		if extracted then
+			vOutput.Text = extracted
+			setVStatus("SUCCESS | " .. message, SC_OK)
+			return
+		end
+
+		-- 2) URL (เช่น loadstring(game:HttpGet("..."))())
+		local url = extractUrl(source)
+
+		if url then
+			busy = true
+			setVStatus("กำลังดึงข้อความจาก URL...", SC_WARN)
+
+			local body = httpGet(url)
+
+			busy = false
+
+			if body then
+				vOutput.Text = body
+				setVStatus(
+					"FETCHED | ดึงจาก " .. url .. " แล้ว (ยังไม่รัน) ตรวจโค้ดก่อนกด RUN",
+					SC_OK
+				)
+			else
+				vOutput.Text = source
+				setVStatus("FETCH FAILED | ดึงข้อความจาก URL ไม่สำเร็จ", SC_ERR)
+			end
+
+			return
+		end
+
+		-- 3) base64
+		if looksLikeBase64(source) then
+			local decoded = b64decode(source)
+
+			if decoded and isMostlyText(decoded) then
+				vOutput.Text = decoded
+				setVStatus("SUCCESS | ถอด base64 สำเร็จ (ยังไม่รัน)", SC_OK)
+				return
+			end
+		end
+
+		-- 4) แสดงต้นฉบับแทน หากแกะอัตโนมัติไม่ได้
+		vOutput.Text = source
+		setVStatus("SOURCE VIEW | " .. tostring(message), SC_WARN)
+	end
+
+	local function runOutput()
+		local text = vOutput.Text
+
+		if trim(text) == "" then
+			setVStatus("ERROR | ไม่มี Source ให้รัน กด DECODE ก่อน", SC_ERR)
+			return
+		end
+
+		local ls = loadstring or (env and env.loadstring)
+
+		if type(ls) ~= "function" then
+			setVStatus("ERROR | ตัวรันนี้ไม่มี loadstring", SC_ERR)
+			return
+		end
+
+		-- กดครั้งแรก: ขอให้ยืนยัน
+		if armedText ~= text then
+			disarm()
+
+			armedText = text
+
+			local token = armToken
+
+			runBtn.Text = "CONFIRM"
+			setVStatus(
+				"กด CONFIRM อีกครั้งภายใน 6 วินาทีเพื่อรัน (" .. #text .. " ตัวอักษร)",
+				SC_WARN
+			)
+
+			task.delay(6, function()
+				if armToken == token and armedText then
+					disarm()
+					setVStatus("ยกเลิกการรันแล้ว (หมดเวลายืนยัน)", SC_WARN)
+				end
+			end)
+
+			return
+		end
+
+		-- กดครั้งที่สอง: รันจริง
+		disarm()
+
+		local fn, err = ls(text)
+
+		if not fn then
+			setVStatus("COMPILE ERROR | " .. tostring(err), SC_ERR)
+			return
+		end
+
+		setVStatus("RUNNING | กำลังรัน...", SC_WARN)
+
+		task.spawn(function()
+			local ok, e = pcall(fn)
+
+			if ok then
+				setVStatus("DONE | รันเสร็จแล้ว", SC_OK)
+			else
+				setVStatus("RUNTIME ERROR | " .. tostring(e), SC_ERR)
+			end
+		end)
+	end
+
+	decodeBtn.MouseButton1Click:Connect(analyze)
+	runBtn.MouseButton1Click:Connect(runOutput)
+
+	copyBtn.MouseButton1Click:Connect(function()
+		if vOutput.Text == "" then
+			setVStatus("ERROR | ไม่มี Source ให้คัดลอก", SC_ERR)
+			return
+		end
+
+		local fn = setclipboard or toclipboard
+			or (env and env.setclipboard)
+			or (syn and syn.write_clipboard)
+
+		if type(fn) == "function" then
+			if pcall(fn, vOutput.Text) then
+				setVStatus("SUCCESS | คัดลอกแล้ว", SC_OK)
+			else
+				setVStatus("COPY FAILED | เลือกข้อความแล้วคัดลอกเอง", SC_ERR)
+			end
+		else
+			setVStatus("เลือกข้อความในช่อง Source แล้วคัดลอกเอง", SC_WARN)
+			vOutput:CaptureFocus()
+		end
+	end)
+
+	clearBtn.MouseButton1Click:Connect(function()
+		disarm()
+		vInput.Text = ""
+		vOutput.Text = ""
+		setVStatus("READY | ล้างข้อมูลแล้ว", SC_WARN)
+	end)
+end
+
+Ext.viewer()
+
+
+-- V4.7: บันทึก / โหลดการตั้งค่า (เปิด HUB ใหม่แล้วค่าเดิมยังอยู่)
+function Ext.config()
+	local CFG_FILE = "KTHub_Config.json"
+
+	local LBL_AUTOLOAD = "โหลดการตั้งค่าอัตโนมัติตอนเปิด HUB"
+	local LBL_AUTOSAVE = "บันทึกอัตโนมัติเมื่อเปลี่ยนค่า"
+
+	-- สวิตช์ที่ไม่เก็บ (ปิดเสมอตอนเปิด HUB)
+	local SKIP = {
+		["ถอดจิต (เปิดแล้วมี UI แยก)"] = true,
+		[LBL_AUTOLOAD] = true,
+		[LBL_AUTOSAVE] = true
+	}
+
+	local canFile = type(writefile) == "function"
+		and type(readfile) == "function"
+		and type(isfile) == "function"
+
+	local meta = {autoLoad = true, autoSave = true}
+	local loading = true
+	local saveToken = 0
+
+	local function readRaw()
+		if canFile then
+			local ok, res = pcall(function()
+				if isfile(CFG_FILE) then
+					return readfile(CFG_FILE)
+				end
+			end)
+
+			if ok and type(res) == "string" and res ~= "" then
+				return res
+			end
+		end
+
+		local mem = env.__KTHubCfgMem
+
+		if type(mem) == "string" and mem ~= "" then
+			return mem
+		end
+
+		return nil
+	end
+
+	local function readCfg()
+		local raw = readRaw()
+
+		if not raw then return nil end
+
+		local ok, data = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+
+		if ok and type(data) == "table" then
+			return data
+		end
+
+		return nil
+	end
+
+	local function writeCfg(data)
+		local ok, json = pcall(function()
+			return HttpService:JSONEncode(data)
+		end)
+
+		if not ok then return false end
+
+		env.__KTHubCfgMem = json
+
+		if canFile then
+			return (pcall(writefile, CFG_FILE, json))
+		end
+
+		return true
+	end
+
+	local function collect()
+		local data = {
+			version = VERSION,
+			meta = {
+				autoLoad = meta.autoLoad,
+				autoSave = meta.autoSave
+			},
+			toggles = {},
+			sliders = {}
+		}
+
+		for name, t in pairs(Ext.toggles) do
+			if not SKIP[name] then
+				data.toggles[name] = t.get()
+			end
+		end
+
+		for name, s in pairs(Ext.sliders) do
+			data.sliders[name] = s.get()
+		end
+
+		return data
+	end
+
+	local function applyCfg(data)
+		if type(data) ~= "table" then return 0 end
+
+		loading = true
+
+		local n = 0
+
+		-- สไลเดอร์ก่อน เพื่อให้สวิตช์ใช้ค่าที่โหลดแล้ว
+		if type(data.sliders) == "table" then
+			for name, v in pairs(data.sliders) do
+				local s = Ext.sliders[name]
+
+				if s and type(v) == "number" and pcall(s.set, v) then
+					n += 1
+				end
+			end
+		end
+
+		if type(data.toggles) == "table" then
+			for name, v in pairs(data.toggles) do
+				local t = Ext.toggles[name]
+
+				if t and not SKIP[name] and type(v) == "boolean"
+					and pcall(t.set, v) then
+					n += 1
+				end
+			end
+		end
+
+		loading = false
+
+		return n
+	end
+
+	local function saveAll()
+		if Ext.dead then return false end
+
+		return writeCfg(collect())
+	end
+
+	-- เซฟแค่ค่า meta (ไม่ทับค่าอื่นที่บันทึกไว้)
+	local function saveMetaOnly()
+		local data = readCfg() or collect()
+
+		data.meta = {
+			autoLoad = meta.autoLoad,
+			autoSave = meta.autoSave
+		}
+
+		writeCfg(data)
+	end
+
+	-- ใช้ตอนปิด HUB
+	Ext.saveNow = function()
+		if loading or not meta.autoSave then return end
+
+		saveAll()
+	end
+
+	-- เรียกทุกครั้งที่สวิตช์/สไลเดอร์เปลี่ยน (หน่วง 1.5 วิ ให้เซฟครั้งเดียวตอนหยุดลาก)
+	Ext.changed = function()
+		if loading or Ext.dead or not meta.autoSave then return end
+
+		saveToken += 1
+
+		local mine = saveToken
+
+		task.delay(1.5, function()
+			if mine == saveToken and not loading then
+				saveAll()
+			end
+		end)
+	end
+
+	-- อ่านค่า meta ที่เคยบันทึกไว้ก่อนสร้างสวิตช์
+	local saved = readCfg()
+
+	if saved and type(saved.meta) == "table" then
+		if type(saved.meta.autoLoad) == "boolean" then
+			meta.autoLoad = saved.meta.autoLoad
+		end
+
+		if type(saved.meta.autoSave) == "boolean" then
+			meta.autoSave = saved.meta.autoSave
+		end
+	end
+
+	------------------------------------------------------------
+	-- UI
+	------------------------------------------------------------
+	local pCfg = Page("ตั้งค่า")
+
+	Label(pCfg, "บันทึก / โหลดการตั้งค่า")
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -6, 0, 44),
+		BackgroundTransparency = 1,
+		Text = canFile
+			and ("เก็บค่าสวิตช์และสไลเดอร์ไว้ในไฟล์ " .. CFG_FILE .. " (โฟลเดอร์ workspace ของตัวรัน) ไม่เก็บสวิตช์ถอดจิต")
+			or "ตัวรันนี้ไม่รองรับไฟล์ ค่าจะถูกจำไว้เฉพาะตอนที่เปิดเกมอยู่ (รัน HUB ซ้ำแล้วยังอยู่)",
+		TextColor3 = Color3.fromRGB(145, 160, 200),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top
+	}, pCfg)
+
+	Toggle(
+		pCfg,
+		LBL_AUTOLOAD,
+		function(v)
+			meta.autoLoad = v
+
+			if not loading then saveMetaOnly() end
+		end,
+		meta.autoLoad
+	)
+
+	Toggle(
+		pCfg,
+		LBL_AUTOSAVE,
+		function(v)
+			meta.autoSave = v
+
+			if not loading then saveMetaOnly() end
+		end,
+		meta.autoSave
+	)
+
+	Button(
+		pCfg,
+		"บันทึกตอนนี้",
+		function()
+			if loading then
+				notify("กำลังโหลดค่า รอสักครู่")
+				return
+			end
+
+			notify(saveAll() and "บันทึกการตั้งค่าแล้ว" or "บันทึกไม่สำเร็จ")
+		end
+	)
+
+	Button(
+		pCfg,
+		"โหลดค่าที่บันทึกไว้",
+		function()
+			local data = readCfg()
+
+			if not data then
+				notify("ยังไม่มีค่าที่บันทึกไว้")
+				return
+			end
+
+			notify(
+				("โหลดการตั้งค่าแล้ว (%d รายการ)"):format(applyCfg(data))
+			)
+		end
+	)
+
+	Button(
+		pCfg,
+		"ลบค่าที่บันทึกไว้",
+		function()
+			env.__KTHubCfgMem = nil
+
+			if canFile then
+				if type(delfile) == "function" then
+					pcall(delfile, CFG_FILE)
+				else
+					pcall(writefile, CFG_FILE, "")
+				end
+			end
+
+			notify("ลบค่าที่บันทึกไว้แล้ว (ค่าปัจจุบันยังไม่เปลี่ยน)")
+		end
+	)
+
+	------------------------------------------------------------
+	-- โหลดตอนเปิด HUB (รอให้ตัวละครโหลดก่อน)
+	------------------------------------------------------------
+	task.spawn(function()
+		local waited = 0
+
+		while not LP.Character and waited < 5 do
+			task.wait(0.1)
+			waited += 0.1
+		end
+
+		task.wait(0.3)
+
+		if Ext.dead then return end
+
+		if meta.autoLoad and saved then
+			local n = applyCfg(saved)
+
+			notify(("โหลดการตั้งค่าที่บันทึกไว้แล้ว (%d รายการ)"):format(n))
+		else
+			loading = false
+		end
+	end)
+end
+
+Ext.config()
+
 -- Initial tab
 selectTab("สถานะ")
 
 -- Cleanup
 local function cleanup()
+
+	-- V4.7: บันทึกค่าล่าสุด + ปิดฟีเจอร์เสริม
+	pcall(function()
+		if Ext.saveNow then Ext.saveNow() end
+	end)
+
+	Ext.dead = true
+
+	for _, f in ipairs(Ext.cleanups) do
+		pcall(f)
+	end
 
 	setSpeed(false)
 	setFly(false)
