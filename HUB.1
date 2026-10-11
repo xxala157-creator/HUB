@@ -1,4 +1,4 @@
---// ขอโทษ HUB V4.2
+--// ขอโทษ HUB V4.5
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,7 +15,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.2"
+local VERSION = "V4.5"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -714,24 +714,88 @@ local function alive(m)
 	return h
 end
 
--- Movement
-local origWS
+-- Movement (วิ่งไว)
+-- เก็บค่าเดิมแยกตามตัวละคร แล้วบังคับความเร็วซ้ำทุกจังหวะ (RenderStepped / Stepped / Heartbeat)
+-- และดักตอนเกมแก้ WalkSpeed ทันที เพื่อให้ทับสคริปต์ของเกมที่คอยรีเซ็ตความเร็วกลับ
+local origWS = setmetatable({}, {__mode = "k"})
+local setSpeed
 
-local function setSpeed(v)
-	S.speed = v
+do
+	local speedHum, speedHumConn
+	local speedGuard = 0
 
-	local _, hum = getChar()
+	local function bindSpeedHum(hum)
+		if speedHum == hum then return end
 
-	if v then
-		if hum and not origWS then
-			origWS = hum.WalkSpeed
+		if speedHumConn then
+			speedHumConn:Disconnect()
+			speedHumConn = nil
 		end
-	else
-		if hum and origWS then
-			hum.WalkSpeed = origWS
+
+		speedHum = hum
+
+		if hum then
+			speedHumConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+				-- กันลูปไม่รู้จบ ถ้ามีสคริปต์ของเกมแย่งกันตั้งค่ากับเรา
+				if S.speed and speedGuard < 20 and hum.WalkSpeed ~= S.speedVal then
+					speedGuard += 1
+					hum.WalkSpeed = S.speedVal
+				end
+			end)
+		end
+	end
+
+	local function applySpeed()
+		if not S.speed then return end
+
+		local _, hum = getChar()
+		if not hum then return end
+
+		bindSpeedHum(hum)
+
+		if origWS[hum] == nil then
+			origWS[hum] = hum.WalkSpeed
 		end
 
-		origWS = nil
+		if hum.WalkSpeed ~= S.speedVal then
+			hum.WalkSpeed = S.speedVal
+		end
+	end
+
+	track(RunService.RenderStepped:Connect(function()
+		applySpeed()
+	end))
+
+	track(RunService.Stepped:Connect(function()
+		applySpeed()
+	end))
+
+	track(RunService.Heartbeat:Connect(function()
+		speedGuard = 0
+		applySpeed()
+	end))
+
+	function setSpeed(v)
+		S.speed = v
+
+		if v then
+			applySpeed()
+			return
+		end
+
+		if speedHumConn then
+			speedHumConn:Disconnect()
+			speedHumConn = nil
+		end
+
+		speedHum = nil
+
+		local _, hum = getChar()
+
+		if hum and origWS[hum] ~= nil then
+			hum.WalkSpeed = origWS[hum]
+			origWS[hum] = nil
+		end
 	end
 end
 
@@ -1133,35 +1197,129 @@ local function setNoclip(v)
 	end
 end
 
--- Invisible
-local savedTransparency = {}
+-- Invisible (ล่องหน)
+-- ซ่อนทั้งตัวละคร (ตัว/หมวก/ของที่ถือ/ชื่อบนหัว/เอฟเฟกต์) และทำซ้ำให้อัตโนมัติ:
+-- ตอนเกิดใหม่, ตอนมีของใหม่โผล่มา, ตอนเกมพยายามเปลี่ยนความโปร่งใสกลับ
+-- หมายเหตุ: เป็นการซ่อนฝั่งเครื่องเรา คนอื่นอาจยังเห็นเราอยู่ (ขึ้นกับเกม)
+local setInvisible
 
-local function setInvisible(v)
-	S.invisible = v
+do
+	local saved = setmetatable({}, {__mode = "k"}) -- [obj] = {ชื่อค่า = ค่าเดิม}
+	local addConn, loopConn, boundChar
+	local NONE = Enum.HumanoidDisplayDistanceType.None
 
-	local c = LP.Character
-	if not c then return end
+	local function put(obj, prop, value)
+		local t = saved[obj]
 
-	if v then
-		for _, obj in ipairs(c:GetDescendants()) do
-			if obj:IsA("BasePart")
-				or obj:IsA("Decal")
-				or obj:IsA("Texture") then
+		if not t then
+			t = {}
+			saved[obj] = t
+		end
 
-				if savedTransparency[obj] == nil then
-					savedTransparency[obj] = obj.Transparency
+		if t[prop] == nil then
+			t[prop] = obj[prop]
+		end
+
+		if obj[prop] ~= value then
+			obj[prop] = value
+		end
+	end
+
+	local function hide(obj)
+		pcall(function()
+			if obj:IsA("BasePart") or obj:IsA("Decal") then
+				put(obj, "Transparency", 1)
+			elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
+				or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles")
+				or obj:IsA("BillboardGui") then
+				put(obj, "Enabled", false)
+			elseif obj:IsA("Humanoid") then
+				put(obj, "DisplayDistanceType", NONE)
+			end
+		end)
+	end
+
+	local function bind(c)
+		if addConn then
+			addConn:Disconnect()
+			addConn = nil
+		end
+
+		boundChar = c
+
+		if not c then return end
+
+		for _, d in ipairs(c:GetDescendants()) do
+			hide(d)
+		end
+
+		addConn = c.DescendantAdded:Connect(function(d)
+			if S.invisible then
+				hide(d)
+			end
+		end)
+	end
+
+	local function enforce()
+		if not S.invisible then return end
+
+		local c = LP.Character
+
+		if c ~= boundChar then
+			bind(c)
+		end
+
+		for obj, t in pairs(saved) do
+			if obj.Parent then
+				if t.Transparency ~= nil and obj.Transparency ~= 1 then
+					obj.Transparency = 1
 				end
 
-				obj.Transparency = 1
+				if t.Enabled ~= nil and obj.Enabled ~= false then
+					obj.Enabled = false
+				end
+
+				if t.DisplayDistanceType ~= nil and obj.DisplayDistanceType ~= NONE then
+					obj.DisplayDistanceType = NONE
+				end
 			end
 		end
-	else
-		for obj, tr in pairs(savedTransparency) do
-			if obj and obj.Parent then
-				obj.Transparency = tr
+	end
+
+	local function restore()
+		for obj, t in pairs(saved) do
+			if obj.Parent then
+				for prop, val in pairs(t) do
+					pcall(function()
+						obj[prop] = val
+					end)
+				end
 			end
 
-			savedTransparency[obj] = nil
+			saved[obj] = nil
+		end
+	end
+
+	function setInvisible(v)
+		S.invisible = v
+
+		if addConn then
+			addConn:Disconnect()
+			addConn = nil
+		end
+
+		if loopConn then
+			loopConn:Disconnect()
+			loopConn = nil
+		end
+
+		boundChar = nil
+
+		if v then
+			bind(LP.Character)
+			loopConn = RunService.RenderStepped:Connect(enforce)
+		else
+			restore()
 		end
 	end
 end
@@ -1327,10 +1485,11 @@ local function warpToSelected()
 	end
 end
 
--- ชนคนกระเด็น (ชนต่อเนื่องจนกว่าเป้าหมายจะกระเด็น แล้วกลับจุดเดิม)
-local FLING_TIMEOUT = 8      -- วินาทีสูงสุดที่พยายามชน
+-- ชนคนกระเด็น: เข้าไปชนเป้าหมายซ้ำ ๆ จนกระเด็น แล้วกลับจุดเดิม
+-- ตอนชนจะทำให้ตัวเราหนัก + หมุน + มีแรงผลัก แล้วคืนค่าทุกอย่างหลังเสร็จ
+local FLING_TIMEOUT = 6      -- วินาทีสูงสุดที่พยายามชน
 local FLING_DISTANCE = 250   -- เป้าหมายห่างจากจุดเริ่มเกินนี้ = กระเด็นแล้ว
-local FLING_SPEED = 400      -- ความเร็วเป้าหมายเกินนี้ = กระเด็นแล้ว
+local FLING_SPEED = 500      -- ความเร็วเป้าหมายเกินนี้ = กระเด็นแล้ว
 local flinging = false
 
 local function flingSelected()
@@ -1341,7 +1500,7 @@ local function flingSelected()
 
 	local target = selectedPlr
 
-	if not (target and target.Character) then
+	if not (target and target.Parent == Players and target.Character) then
 		notify("ยังไม่ได้เลือกผู้เล่น")
 		return
 	end
@@ -1351,68 +1510,127 @@ local function flingSelected()
 		return
 	end
 
-	local _, hum, root = getChar()
-	local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+	local char, hum, root = getChar()
+	local tChar = target.Character
+	local tRoot = tChar:FindFirstChild("HumanoidRootPart")
+	local tHum = tChar:FindFirstChildOfClass("Humanoid")
 
-	if not (hum and root and tRoot) then
+	if not (char and hum and root and tRoot and tHum) then
 		notify("หาตัวละครไม่เจอ")
 		return
 	end
 
+	if hum.Health <= 0 or tHum.Health <= 0 then
+		notify("มีตัวละครที่ตายอยู่ ชนไม่ได้")
+		return
+	end
+
+	if tHum.Sit then
+		notify("เป้าหมายนั่งอยู่ ชนไม่กระเด็น")
+		return
+	end
+
 	flinging = true
+	notify("กำลังชน...")
 
 	local original = root.CFrame
 	local startPos = tRoot.Position
 	local hadNoclip = S.noclip
 	local oldHeight = Workspace.FallenPartsDestroyHeight
+	local cam = Workspace.CurrentCamera
 	local result = "timeout"
+	local oldProps = {}
+	local bv
 
-	-- noclip ต้องปิดชั่วคราว ไม่งั้นตัวเราจะไม่ชนเป้าหมาย
+	-- noclip ต้องปิดชั่วคราว ไม่งั้นตัวเราจะทะลุเป้าหมาย
 	if hadNoclip then
 		setNoclip(false)
 	end
 
-	pcall(function()
+	-- กันตัวเราโดนลบตอนถูกเหวี่ยงตกแมพ
+	if not pcall(function()
 		Workspace.FallenPartsDestroyHeight = -1e9
-	end)
+	end) then
+		pcall(function()
+			Workspace.FallenPartsDestroyHeight = 0 / 0
+		end)
+	end
 
-	notify("กำลังชน...")
+	pcall(function()
+		-- ตัวหนัก = แรงชนแรง (เก็บค่าเดิมไว้คืนทีหลัง)
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") then
+				oldProps[part] = part.CustomPhysicalProperties or false
+				part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0.3, 0.5)
+			end
+		end
+
+		bv = Instance.new("BodyVelocity")
+		bv.Name = "_HubFlingBV"
+		bv.Velocity = Vector3.new(9e8, 9e8, 9e8)
+		bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+		bv.Parent = root
+
+		hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+		if cam then
+			cam.CameraSubject = tHum
+		end
+	end)
 
 	local offsets = {
 		Vector3.new(0, 1.5, 0),
 		Vector3.new(0, -1.5, 0),
-		Vector3.new(0, 0.5, 2),
-		Vector3.new(0, 0.5, -2)
+		Vector3.new(2, 0.5, -2),
+		Vector3.new(-2, -0.5, 2)
 	}
 
-	pcall(function()
+	local okLoop = pcall(function()
 		local t0 = os.clock()
 		local step = 0
+		local angle = 0
 
 		while gui.Parent and os.clock() - t0 < FLING_TIMEOUT do
-			local tChar = target.Character
-			local tr = tChar and tChar:FindFirstChild("HumanoidRootPart")
-			local th = tChar and tChar:FindFirstChildOfClass("Humanoid")
 			local _, myHum, myRoot = getChar()
+			local tc = target.Character
+			local tr = tc and tc:FindFirstChild("HumanoidRootPart")
+			local th = tc and tc:FindFirstChildOfClass("Humanoid")
 
-			if not (tr and th and myHum and myRoot) or myHum.Health <= 0 then
+			if target.Parent ~= Players
+				or not (tr and th and myHum and myRoot)
+				or myHum.Health <= 0
+				or th.Health <= 0 then
+
 				result = "lost"
 				break
 			end
 
+			if th.Sit then
+				result = "sit"
+				break
+			end
+
+			local tSpeed = tr.AssemblyLinearVelocity.Magnitude
+
 			-- กระเด็นแล้ว: เป้าหมายถูกเหวี่ยงห่าง หรือความเร็วสูงผิดปกติ
-			if (tr.Position - startPos).Magnitude > FLING_DISTANCE
-				or tr.AssemblyLinearVelocity.Magnitude > FLING_SPEED then
+			if tSpeed > FLING_SPEED
+				or (tr.Position - startPos).Magnitude > FLING_DISTANCE then
 
 				result = "flung"
 				break
 			end
 
 			step += 1
-			local off = offsets[(step % #offsets) + 1]
-			local lead = th.MoveDirection * (tr.AssemblyLinearVelocity.Magnitude / 4)
+			angle += 100
 
-			myRoot.CFrame = tr.CFrame * CFrame.new(off) + lead
+			-- วิ่งนำหน้าเป้าหมายเล็กน้อย จะได้ชนโดนตอนเขากำลังเดิน
+			local lead = th.MoveDirection * math.min(tSpeed, 80) / 1.25
+			local off = offsets[step % #offsets + 1] + lead
+
+			myRoot.CFrame = CFrame.new(tr.Position)
+				* CFrame.new(off)
+				* CFrame.Angles(math.rad(angle), 0, 0)
+
 			myRoot.AssemblyLinearVelocity = Vector3.new(9e7, 9e8, 9e7)
 			myRoot.AssemblyAngularVelocity = Vector3.new(9e8, 9e8, 9e8)
 
@@ -1420,27 +1638,62 @@ local function flingSelected()
 		end
 	end)
 
+	if not okLoop then
+		result = "error"
+	end
+
+	-- เก็บกวาด: เอาแรงผลัก/ความหนักออก คืนสถานะนั่ง และกล้อง
+	pcall(function()
+		if bv then
+			bv:Destroy()
+		end
+	end)
+
+	pcall(function()
+		for part, props in pairs(oldProps) do
+			if part.Parent then
+				part.CustomPhysicalProperties = props or nil
+			end
+		end
+	end)
+
+	pcall(function()
+		hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+	end)
+
+	pcall(function()
+		local _, h2 = getChar()
+
+		if cam and h2 then
+			cam.CameraSubject = h2
+		end
+	end)
+
 	-- กลับจุดเดิม: ล้างแรงทั้งหมดแล้วย้ายกลับหลายเฟรมจนนิ่ง
 	pcall(function()
-		for _ = 1, 20 do
-			local c, _, r = getChar()
-			if not (c and r) then break end
+		local frames = 0
 
-			for _, part in ipairs(c:GetDescendants()) do
+		repeat
+			frames += 1
+
+			local c3, h3, r3 = getChar()
+			if not (c3 and r3) then break end
+
+			for _, part in ipairs(c3:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
 
-			r.CFrame = original
-			RunService.Heartbeat:Wait()
-		end
+			r3.CFrame = original * CFrame.new(0, 0.5, 0)
 
-		local _, h = getChar()
-		if h then
-			h:ChangeState(Enum.HumanoidStateType.GettingUp)
-		end
+			if h3 then
+				h3:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end
+
+			RunService.Heartbeat:Wait()
+		until (frames >= 20 and (r3.Position - original.Position).Magnitude < 10) or frames >= 90
 	end)
 
 	pcall(function()
@@ -1456,9 +1709,13 @@ local function flingSelected()
 	if result == "flung" then
 		notify("ชนกระเด็นสำเร็จ กลับจุดเดิมแล้ว")
 	elseif result == "lost" then
-		notify("เป้าหมายหายไป กลับจุดเดิมแล้ว")
+		notify("เป้าหมายหายไป/ตาย กลับจุดเดิมแล้ว")
+	elseif result == "sit" then
+		notify("เป้าหมายนั่งอยู่ ชนไม่กระเด็น กลับจุดเดิมแล้ว")
+	elseif result == "error" then
+		notify("ชนไม่สำเร็จ (เกิดข้อผิดพลาด) กลับจุดเดิมแล้ว")
 	else
-		notify("ชนแล้วไม่กระเด็น (หมดเวลา) กลับจุดเดิมแล้ว")
+		notify("ชนแล้วไม่กระเด็น (หมดเวลา) เกมนี้อาจกันไว้ กลับจุดเดิมแล้ว")
 	end
 end
 
@@ -1850,17 +2107,106 @@ end
 local statusLabels = {}
 local fpsValue = 0
 
-local function getCountry()
-	local ok, country = pcall(function()
-		return LocalizationService:
-			GetCountryRegionForPlayerAsync(LP)
-	end)
+-- ประเทศ (ดึงแบบแคช ไม่เรียกซ้ำทุกวินาที) ใช้ได้กับผู้เล่นทุกคน
+-- ชื่อไทยสำหรับประเทศที่เจอบ่อย ที่เหลือใช้ชื่ออังกฤษตามรายการของ Roblox
+local CountryLib = {}
 
-	if ok and country then
-		return country
+do
+	local TH_NAMES = {
+		XX = "ไม่ทราบ", TH = "ไทย", US = "สหรัฐอเมริกา", GB = "สหราชอาณาจักร", CA = "แคนาดา",
+		AU = "ออสเตรเลีย", NZ = "นิวซีแลนด์", JP = "ญี่ปุ่น", KR = "เกาหลีใต้", KP = "เกาหลีเหนือ",
+		CN = "จีน", HK = "ฮ่องกง", TW = "ไต้หวัน", SG = "สิงคโปร์", MY = "มาเลเซีย",
+		ID = "อินโดนีเซีย", PH = "ฟิลิปปินส์", VN = "เวียดนาม", LA = "ลาว", KH = "กัมพูชา",
+		MM = "เมียนมา", BN = "บรูไน", IN = "อินเดีย", PK = "ปากีสถาน", BD = "บังกลาเทศ",
+		LK = "ศรีลังกา", NP = "เนปาล", DE = "เยอรมนี", FR = "ฝรั่งเศส", IT = "อิตาลี",
+		ES = "สเปน", PT = "โปรตุเกส", NL = "เนเธอร์แลนด์", BE = "เบลเยียม", CH = "สวิตเซอร์แลนด์",
+		AT = "ออสเตรีย", SE = "สวีเดน", NO = "นอร์เวย์", DK = "เดนมาร์ก", FI = "ฟินแลนด์",
+		IE = "ไอร์แลนด์", PL = "โปแลนด์", RU = "รัสเซีย", UA = "ยูเครน", TR = "ตุรกี",
+		SA = "ซาอุดีอาระเบีย", AE = "สหรัฐอาหรับเอมิเรตส์", IL = "อิสราเอล", EG = "อียิปต์",
+		ZA = "แอฟริกาใต้", BR = "บราซิล", MX = "เม็กซิโก", AR = "อาร์เจนตินา", CL = "ชิลี",
+		CO = "โคลอมเบีย", PE = "เปรู"
+	}
+
+	local EN_RAW = "XX=Unknown Country|US=United States|GB=United Kingdom|CA=Canada|AF=Afghanistan|AX=Aland Islands|AL=Albania|DZ=Algeria|AS=American Samoa|AD=Andorra|AO=Angola|AI=Anguilla|AQ=Antarctica|AG=Antigua and Barbuda|AR=Argentina|AM=Armenia|AW=Aruba|AU=Australia|AT=Austria|AZ=Azerbaijan|BS=Bahamas|BH=Bahrain|BD=Bangladesh|BB=Barbados|BY=Belarus|BE=Belgium|BZ=Belize|BJ=Benin|BM=Bermuda|BT=Bhutan|BO=Bolivia|BQ=Bonaire, Saint Eustatius and Saba|BA=Bosnia and Herzegovina|BW=Botswana|BV=Bouvet Island|BR=Brazil|IO=British Indian Ocean Territory|BN=Brunei Darussalam|BG=Bulgaria|BF=Burkina Faso|BI=Burundi|KH=Cambodia|CM=Cameroon|CV=Cape Verde|KY=Cayman Islands|CF=Central African Republic|TD=Chad|CL=Chile|CN=China|CX=Christmas Island|CC=Cocos Islands|CO=Colombia|KM=Comoros|CG=Congo|CD=Congo (DRC)|CK=Cook Islands|CR=Costa Rica|CI=Ivory Coast|HR=Croatia|CW=Curaçao|CY=Cyprus|CZ=Czech Republic|DK=Denmark|DJ=Djibouti|DM=Dominica|DO=Dominican Republic|EC=Ecuador|EG=Egypt|SV=El Salvador|GQ=Equatorial Guinea|ER=Eritrea|EE=Estonia|ET=Ethiopia|FK=Falkland Islands (Malvinas)|FO=Faroe Islands|FJ=Fiji|FI=Finland|FR=France|GF=French Guiana|PF=French Polynesia|TF=French Southern Territories|GA=Gabon|GM=Gambia|GE=Georgia|DE=Germany|GH=Ghana|GI=Gibraltar|GR=Greece|GL=Greenland|GD=Grenada|GP=Guadeloupe|GU=Guam|GT=Guatemala|GG=Guernsey|GN=Guinea|GW=Guinea-Bissau|GY=Guyana|HT=Haiti|HM=Heard Island and the McDonald Islands|VA=Holy See|HN=Honduras|HK=Hong Kong|HU=Hungary|IS=Iceland|IN=India|ID=Indonesia|IQ=Iraq|IE=Ireland|IM=Isle of Man|IL=Israel|IT=Italy|JM=Jamaica|JP=Japan|JE=Jersey|JO=Jordan|KZ=Kazakhstan|KE=Kenya|KI=Kiribati|KR=Korea|KW=Kuwait|KG=Kyrgyzstan|LA=Laos|LV=Latvia|LB=Lebanon|LS=Lesotho|LR=Liberia|LY=Libya|LI=Liechtenstein|LT=Lithuania|LU=Luxembourg|MO=Macao|MK=Macedonia|MG=Madagascar|MW=Malawi|MY=Malaysia|MV=Maldives|ML=Mali|MT=Malta|MH=Marshall Islands|MQ=Martinique|MR=Mauritania|MU=Mauritius|YT=Mayotte|MX=Mexico|FM=Micronesia|MD=Moldova|MC=Monaco|MN=Mongolia|ME=Montenegro|MS=Montserrat|MA=Morocco|MZ=Mozambique|MM=Myanmar|NA=Namibia|NR=Nauru|NP=Nepal|NL=Netherlands|AN=Netherlands Antilles|NC=New Caledonia|NZ=New Zealand|NI=Nicaragua|NE=Niger|NG=Nigeria|NU=Niue|NF=Norfolk Island|MP=Northern Mariana Islands|NO=Norway|OM=Oman|PK=Pakistan|PW=Palau|PS=Palestine|PA=Panama|PG=Papua New Guinea|PY=Paraguay|PE=Peru|PH=Philippines|PN=Pitcairn Islands|PL=Poland|PT=Portugal|PR=Puerto Rico|QA=Qatar|RE=Reunion|RO=Romania|RU=Russian Federation|RW=Rwanda|BL=Saint Barthelemy|SH=Saint Helena, Ascension and Tristan da Cunha|KN=Saint Kitts and Nevis|LC=Saint Lucia|MF=Saint Martin|PM=Saint Pierre and Miquelon|VC=Saint Vincent and the Grenadines|WS=Samoa|SM=San Marino|ST=Sao Tome and Principe|SA=Saudi Arabia|SN=Senegal|RS=Serbia|SC=Seychelles|SL=Sierra Leone|SG=Singapore|SX=Sint Maarten|SK=Slovakia|SI=Slovenia|SB=Solomon Islands|SO=Somalia|ZA=South Africa|GS=South Georgia and the South Sandwich Islands|SS=South Sudan|ES=Spain|LK=Sri Lanka|SR=Suriname|SJ=Svalbard and Jan Mayen|SZ=Swaziland|SE=Sweden|CH=Switzerland|TW=Taiwan|TJ=Tajikistan|TZ=Tanzania|TH=Thailand|TL=Timor-Leste|TG=Togo|TK=Tokelau|TO=Tonga|TT=Trinidad and Tobago|TN=Tunisia|TR=Türkiye (Turkey)|TM=Turkmenistan|TC=Turks and Caicos Islands|TV=Tuvalu|UG=Uganda|UA=Ukraine|AE=United Arab Emirates|UM=United States Minor Outlying Islands|UY=Uruguay|UZ=Uzbekistan|VU=Vanuatu|VE=Venezuela|VN=Vietnam|VG=Virgin Islands (British)|VI=Virgin Islands (US)|WF=Wallis and Futuna|EH=Western Sahara|YE=Yemen|ZM=Zambia|ZW=Zimbabwe|CU=Cuba|IR=Iran|SY=Syria|KP=North Korea"
+	local EN_NAMES = {}
+
+	for pair in string.gmatch(EN_RAW, "[^|]+") do
+		local code, name = string.match(pair, "^(%u%u)=(.+)$")
+
+		if code then
+			EN_NAMES[code] = name
+		end
 	end
 
-	return "Unknown"
+	local cache = {} -- [Player] = {code=, pending=, tries=, at=}
+
+	local function nameOf(code)
+		local name = TH_NAMES[code] or EN_NAMES[code]
+
+		if name then
+			return name .. " (" .. code .. ")"
+		end
+
+		return code
+	end
+
+	local function fetch(p)
+		local e = cache[p]
+
+		if e then
+			if e.code or e.pending then
+				return e
+			end
+
+			-- ลองใหม่ได้สูงสุด 3 ครั้ง ห่างกัน 10 วิ
+			if e.tries >= 3 or os.clock() - e.at < 10 then
+				return e
+			end
+		else
+			e = {tries = 0, at = 0}
+			cache[p] = e
+		end
+
+		e.pending = true
+		e.tries += 1
+
+		task.spawn(function()
+			local ok, res = pcall(function()
+				return LocalizationService:GetCountryRegionForPlayerAsync(p)
+			end)
+
+			e.pending = false
+			e.at = os.clock()
+
+			if ok and type(res) == "string" and res ~= "" then
+				e.code = res
+			end
+		end)
+
+		return e
+	end
+
+	function CountryLib.text(p)
+		local e = fetch(p)
+
+		if e.code then
+			return nameOf(e.code)
+		end
+
+		if e.pending then
+			return "กำลังโหลด..."
+		end
+
+		if e.tries >= 3 then
+			return "ดึงไม่ได้"
+		end
+
+		return "กำลังลองใหม่..."
+	end
+
+	function CountryLib.forget(p)
+		cache[p] = nil
+	end
 end
 
 local function getCreator()
@@ -1903,7 +2249,7 @@ local function getStatusText()
 		FE = "Enabled",
 		JobID = game.JobId ~= "" and game.JobId or "Studio",
 		PlaceID = tostring(game.PlaceId),
-		Country = getCountry(),
+		Country = CountryLib.text(LP),
 		UserID = tostring(LP.UserId),
 		MapName = Workspace.Name,
 		GameName = game.Name,
@@ -1959,10 +2305,6 @@ track(
 		end
 
 		local _, hum, root = getChar()
-
-		if S.speed and hum then
-			hum.WalkSpeed = S.speedVal
-		end
 
 		if S.fly
 			and flyBV
@@ -2898,6 +3240,254 @@ Label(pStatus, "PLAYER")
 statusRow(pStatus, "User ID", "UserID")
 statusRow(pStatus, "FPS", "FPS")
 statusRow(pStatus, "Ping", "Ping")
+
+-- ===== ดูสถานะผู้เล่นคนอื่น (เลือกจากรายชื่อ -> ดูข้อมูล + ประเทศ) =====
+do
+	Label(pStatus, "ดูสถานะผู้เล่นคนอื่น")
+
+	local sel = LP
+	local card = {}
+
+	local listBox = new("ScrollingFrame", {
+		Size = UDim2.new(1, -10, 0, 104),
+		BackgroundColor3 = C.row,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new()
+	}, pStatus)
+
+	corner(listBox, 6)
+
+	new("UIListLayout", {
+		Padding = UDim.new(0, 4)
+	}, listBox)
+
+	new("UIPadding", {
+		PaddingTop = UDim.new(0, 4),
+		PaddingLeft = UDim.new(0, 4)
+	}, listBox)
+
+	local function infoRow(title, key)
+		local row = new("Frame", {
+			Size = UDim2.new(1, -10, 0, 38),
+			BackgroundColor3 = C.row
+		}, pStatus)
+
+		corner(row, 7)
+
+		new("TextLabel", {
+			Size = UDim2.new(0.34, 0, 1, 0),
+			Position = UDim2.fromOffset(12, 0),
+			BackgroundTransparency = 1,
+			Text = title,
+			TextColor3 = Color3.fromRGB(150, 165, 205),
+			Font = Enum.Font.GothamMedium,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left
+		}, row)
+
+		card[key] = new("TextLabel", {
+			Size = UDim2.new(0.62, -5, 1, 0),
+			Position = UDim2.new(0.34, 0, 0, 0),
+			BackgroundTransparency = 1,
+			Text = "--",
+			TextColor3 = C.text,
+			Font = FONT,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextTruncate = Enum.TextTruncate.AtEnd
+		}, row)
+	end
+
+	infoRow("ชื่อ", "name")
+	infoRow("User ID", "uid")
+	infoRow("ประเทศ", "country")
+	infoRow("อายุบัญชี", "age")
+	infoRow("Premium", "prem")
+	infoRow("ทีม", "team")
+	infoRow("เลือด", "hp")
+	infoRow("ระยะห่างจากเรา", "dist")
+	infoRow("ความเร็วตอนนี้", "speed")
+	infoRow("ภาษา", "lang")
+	infoRow("ตรวจโปร", "pro")
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -10, 0, 44),
+		BackgroundTransparency = 1,
+		Text = "ประเทศดูจากไอพีที่ Roblox เห็น ถ้าใช้ VPN อาจไม่ตรง • FPS/Ping ของคนอื่นดึงไม่ได้ (เกมไม่เปิดข้อมูลนี้)",
+		TextColor3 = Color3.fromRGB(120, 130, 170),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top
+	}, pStatus)
+
+	local function num(n)
+		return tostring(math.floor(n + 0.5))
+	end
+
+	local function updateCard()
+		if not (listBox and listBox.Parent) then return end
+
+		local p = sel
+
+		if not (p and p.Parent == Players) then
+			for _, l in pairs(card) do
+				l.Text = "--"
+			end
+
+			card.name.Text = "เลือกผู้เล่นจากรายชื่อด้านบน"
+			return
+		end
+
+		card.name.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+		card.uid.Text = tostring(p.UserId)
+		card.country.Text = CountryLib.text(p)
+
+		local okAge, age = pcall(function()
+			return p.AccountAge
+		end)
+
+		if okAge and age then
+			card.age.Text = age .. " วัน (" .. string.format("%.1f", age / 365) .. " ปี)"
+		else
+			card.age.Text = "--"
+		end
+
+		local okMem, mem = pcall(function()
+			return p.MembershipType
+		end)
+
+		card.prem.Text = (okMem and mem == Enum.MembershipType.Premium) and "Premium" or "ไม่มี"
+		card.team.Text = p.Team and p.Team.Name or "ไม่มีทีม"
+
+		local char = p.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+
+		if hum then
+			if hum.Health <= 0 then
+				card.hp.Text = "ตายแล้ว"
+			else
+				card.hp.Text = num(hum.Health) .. " / " .. num(hum.MaxHealth)
+			end
+		else
+			card.hp.Text = "ไม่มีตัวละคร"
+		end
+
+		local _, _, myRoot = getChar()
+
+		if p == LP then
+			card.dist.Text = "ตัวคุณเอง"
+		elseif root and myRoot then
+			card.dist.Text = num((root.Position - myRoot.Position).Magnitude) .. " studs"
+		else
+			card.dist.Text = "--"
+		end
+
+		if root then
+			card.speed.Text = num(root.AssemblyLinearVelocity.Magnitude) .. " studs/s"
+		else
+			card.speed.Text = "--"
+		end
+
+		local okLoc, loc = pcall(function()
+			return p.LocaleId
+		end)
+
+		if okLoc and loc and loc ~= "" then
+			card.lang.Text = loc
+		else
+			card.lang.Text = "--"
+		end
+
+		local f = proFlagged[p]
+
+		if f then
+			card.pro.Text = "โปร: " .. proReason(f)
+			card.pro.TextColor3 = Color3.fromRGB(255, 90, 90)
+		else
+			card.pro.Text = S.proDetect and "ปกติ" or "ปิดตรวจจับอยู่"
+			card.pro.TextColor3 = C.text
+		end
+	end
+
+	local function refreshList()
+		if not (listBox and listBox.Parent) then return end
+
+		for _, c in ipairs(listBox:GetChildren()) do
+			if c:IsA("TextButton") then
+				c:Destroy()
+			end
+		end
+
+		local plist = {}
+
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p.Parent == Players then
+				plist[#plist + 1] = p
+			end
+		end
+
+		-- ตัวเองอยู่บนสุด ที่เหลือเรียงตามชื่อ
+		table.sort(plist, function(a, b)
+			if a == b then return false end
+			if a == LP then return true end
+			if b == LP then return false end
+
+			return a.DisplayName:lower() < b.DisplayName:lower()
+		end)
+
+		for _, p in ipairs(plist) do
+			local b = new("TextButton", {
+				Size = UDim2.new(1, -6, 0, 26),
+				BackgroundColor3 = (sel == p) and C.accent or C.off,
+				Text = p.DisplayName .. " (@" .. p.Name .. ")" .. (p == LP and " • คุณ" or ""),
+				TextColor3 = C.text,
+				Font = FONT,
+				TextSize = 12,
+				TextTruncate = Enum.TextTruncate.AtEnd
+			}, listBox)
+
+			corner(b, 5)
+
+			b.MouseButton1Click:Connect(function()
+				sel = p
+				refreshList()
+				updateCard()
+			end)
+		end
+	end
+
+	track(Players.PlayerAdded:Connect(function()
+		task.defer(refreshList)
+	end))
+
+	track(Players.PlayerRemoving:Connect(function(p)
+		CountryLib.forget(p)
+
+		if sel == p then
+			sel = LP
+		end
+
+		task.defer(function()
+			refreshList()
+			updateCard()
+		end)
+	end))
+
+	refreshList()
+	updateCard()
+
+	task.spawn(function()
+		while gui.Parent do
+			pcall(updateCard)
+			task.wait(0.5)
+		end
+	end)
+end
 
 local function updateStatus()
 	if not pStatus or not pStatus.Parent then
