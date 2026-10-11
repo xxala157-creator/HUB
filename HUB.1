@@ -1,4 +1,4 @@
---// ขอโทษ HUB V4.5
+--// ขอโทษ HUB V4.6
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,7 +15,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.5"
+local VERSION = "V4.6"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -1201,6 +1201,7 @@ end
 -- ซ่อนทั้งตัวละคร (ตัว/หมวก/ของที่ถือ/ชื่อบนหัว/เอฟเฟกต์) และทำซ้ำให้อัตโนมัติ:
 -- ตอนเกิดใหม่, ตอนมีของใหม่โผล่มา, ตอนเกมพยายามเปลี่ยนความโปร่งใสกลับ
 -- หมายเหตุ: เป็นการซ่อนฝั่งเครื่องเรา คนอื่นอาจยังเห็นเราอยู่ (ขึ้นกับเกม)
+-- V4.6: ซ่อนเพิ่ม ForceField/Highlight/SurfaceGui + ทับค่าแบบกันพัง (pcall ต่อชิ้น)
 local setInvisible
 
 do
@@ -1231,8 +1232,11 @@ do
 				put(obj, "Transparency", 1)
 			elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
 				or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles")
-				or obj:IsA("BillboardGui") then
+				or obj:IsA("BillboardGui") or obj:IsA("SurfaceGui")
+				or obj:IsA("Highlight") then
 				put(obj, "Enabled", false)
+			elseif obj:IsA("ForceField") then
+				put(obj, "Visible", false)
 			elseif obj:IsA("Humanoid") then
 				put(obj, "DisplayDistanceType", NONE)
 			end
@@ -1260,6 +1264,25 @@ do
 		end)
 	end
 
+	-- ทับค่าซ้ำให้ชิ้นเดียว (แยกเป็นฟังก์ชันเพื่อใช้กับ pcall: ชิ้นไหนพังก็ไม่ทำให้ทั้งลูปหยุด)
+	local function applyOne(obj, t)
+		if t.Transparency ~= nil and obj.Transparency ~= 1 then
+			obj.Transparency = 1
+		end
+
+		if t.Enabled ~= nil and obj.Enabled ~= false then
+			obj.Enabled = false
+		end
+
+		if t.Visible ~= nil and obj.Visible ~= false then
+			obj.Visible = false
+		end
+
+		if t.DisplayDistanceType ~= nil and obj.DisplayDistanceType ~= NONE then
+			obj.DisplayDistanceType = NONE
+		end
+	end
+
 	local function enforce()
 		if not S.invisible then return end
 
@@ -1271,17 +1294,7 @@ do
 
 		for obj, t in pairs(saved) do
 			if obj.Parent then
-				if t.Transparency ~= nil and obj.Transparency ~= 1 then
-					obj.Transparency = 1
-				end
-
-				if t.Enabled ~= nil and obj.Enabled ~= false then
-					obj.Enabled = false
-				end
-
-				if t.DisplayDistanceType ~= nil and obj.DisplayDistanceType ~= NONE then
-					obj.DisplayDistanceType = NONE
-				end
+				pcall(applyOne, obj, t)
 			end
 		end
 	end
@@ -2209,27 +2222,39 @@ do
 	end
 end
 
+-- ดึงข้อมูลแมพ/ผู้สร้างแค่ครั้งเดียวแล้วจำไว้ (เดิมเรียก GetProductInfo ทุกวินาที ทำให้หน่วง/โดนจำกัด)
+local placeInfo = {creator = "กำลังโหลด...", name = nil, started = false}
+
+function placeInfo.load()
+	if placeInfo.started then return end
+	placeInfo.started = true
+
+	task.spawn(function()
+		local ok, info = pcall(function()
+			return MarketplaceService:GetProductInfo(
+				game.PlaceId,
+				Enum.InfoType.Asset
+			)
+		end)
+
+		if not (ok and info) then
+			ok, info = pcall(function()
+				return MarketplaceService:GetProductInfo(game.PlaceId)
+			end)
+		end
+
+		if ok and info then
+			placeInfo.name = info.Name
+			placeInfo.creator = (info.Creator and info.Creator.Name) or "ไม่ทราบ"
+		else
+			placeInfo.creator = "ดึงไม่ได้"
+		end
+	end)
+end
+
 local function getCreator()
-	local ok, info = pcall(function()
-		return MarketplaceService:GetProductInfo(
-			game.PlaceId,
-			Enum.InfoType.Asset
-		)
-	end)
-
-	if ok and info and info.Creator then
-		return info.Creator.Name or "Unknown"
-	end
-
-	local ok2, info2 = pcall(function()
-		return MarketplaceService:GetProductInfo(game.PlaceId)
-	end)
-
-	if ok2 and info2 and info2.Creator then
-		return info2.Creator.Name or "Unknown"
-	end
-
-	return "Unknown"
+	placeInfo.load()
+	return placeInfo.creator
 end
 
 local function getPing()
@@ -2245,21 +2270,60 @@ local function getPing()
 end
 
 local function getStatusText()
+	local function num(n)
+		return tostring(math.floor(n + 0.5))
+	end
+
+	placeInfo.load()
+
+	local char = LP.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+
+	local hpText = "--"
+	if hum then
+		hpText = (hum.Health <= 0) and "ตายแล้ว"
+			or (num(hum.Health) .. " / " .. num(hum.MaxHealth))
+	end
+
+	local speedText = "--"
+	if root then
+		speedText = num(root.AssemblyLinearVelocity.Magnitude) .. " studs/s"
+	end
+
+	local okAge, age = pcall(function()
+		return LP.AccountAge
+	end)
+
+	local okMem, mem = pcall(function()
+		return LP.MembershipType
+	end)
+
 	return {
-		FE = "Enabled",
-		JobID = game.JobId ~= "" and game.JobId or "Studio",
+		FE = "เปิดอยู่",
+		JobID = game.JobId ~= "" and game.JobId or "สตูดิโอ",
 		PlaceID = tostring(game.PlaceId),
 		Country = CountryLib.text(LP),
-		UserID = tostring(LP.UserId),
-		MapName = Workspace.Name,
+		MapName = placeInfo.name or game.Name,
 		GameName = game.Name,
 		Creator = getCreator(),
-		FPS = tostring(math.floor(fpsValue + 0.5)),
+
+		-- สถานะของเรา
+		MyName = LP.DisplayName .. " (@" .. LP.Name .. ")",
+		UserID = tostring(LP.UserId),
+		MyAge = (okAge and age) and (age .. " วัน (" .. string.format("%.1f", age / 365) .. " ปี)") or "--",
+		MyPrem = (okMem and mem == Enum.MembershipType.Premium) and "Premium" or "ไม่มี",
+		MyTeam = LP.Team and LP.Team.Name or "ไม่มีทีม",
+		MyHP = hpText,
+		MySpeed = speedText,
+		FPS = num(fpsValue) .. " เฟรม/วิ",
 		Ping = getPing()
 	}
 end
 
-local function statusRow(parent, title, key)
+local function statusRow(parent, title, key, tint, leftFrac)
+	leftFrac = leftFrac or 0.38
+
 	local row = new("Frame", {
 		Size = UDim2.new(1, -10, 0, 38),
 		BackgroundColor3 = C.row
@@ -2267,9 +2331,21 @@ local function statusRow(parent, title, key)
 
 	corner(row, 7)
 
+	-- แถบสีด้านซ้าย: แยกกลุ่มให้เห็นชัด (เขียว = ของเรา, ส้ม = ผู้เล่นอื่น)
+	if tint then
+		local bar = new("Frame", {
+			Size = UDim2.new(0, 4, 1, -12),
+			Position = UDim2.fromOffset(4, 6),
+			BackgroundColor3 = tint,
+			BorderSizePixel = 0
+		}, row)
+
+		corner(bar, 2)
+	end
+
 	new("TextLabel", {
-		Size = UDim2.new(0.38, 0, 1, 0),
-		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(leftFrac, 0, 1, 0),
+		Position = UDim2.fromOffset(tint and 16 or 12, 0),
 		BackgroundTransparency = 1,
 		Text = title,
 		TextColor3 = Color3.fromRGB(150, 165, 205),
@@ -2279,8 +2355,8 @@ local function statusRow(parent, title, key)
 	}, row)
 
 	local value = new("TextLabel", {
-		Size = UDim2.new(0.57, -5, 1, 0),
-		Position = UDim2.new(0.38, 0, 0, 0),
+		Size = UDim2.new(1 - leftFrac - 0.05, -5, 1, 0),
+		Position = UDim2.new(leftFrac, 0, 0, 0),
 		BackgroundTransparency = 1,
 		Text = "--",
 		TextColor3 = C.text,
@@ -2290,7 +2366,55 @@ local function statusRow(parent, title, key)
 		TextTruncate = Enum.TextTruncate.AtEnd
 	}, row)
 
-	statusLabels[key] = value
+	if key then
+		statusLabels[key] = value
+	end
+
+	return value
+end
+
+local StatusUI = {}
+
+-- แบนเนอร์หัวข้อสีเต็ม ใช้แบ่งโซน "ของเรา" / "ผู้เล่นอื่น" ให้ชัด
+function StatusUI.banner(parent, text, sub, tint)
+	local f = new("Frame", {
+		Size = UDim2.new(1, -10, 0, 44),
+		BackgroundColor3 = tint
+	}, parent)
+
+	corner(f, 8)
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 22),
+		Position = UDim2.fromOffset(10, 4),
+		BackgroundTransparency = 1,
+		Text = text,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		Font = FONT,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, f)
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 14),
+		Position = UDim2.fromOffset(10, 26),
+		BackgroundTransparency = 1,
+		Text = sub,
+		TextColor3 = Color3.fromRGB(235, 245, 255),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, f)
+
+	return f
+end
+
+-- ตัวเว้นช่องว่างระหว่างโซน
+function StatusUI.gap(parent, h)
+	new("Frame", {
+		Size = UDim2.new(1, -10, 0, h or 8),
+		BackgroundTransparency = 1
+	}, parent)
 end
 
 local statusUpdater
@@ -3207,7 +3331,7 @@ new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 26),
 	Position = UDim2.fromOffset(12, 7),
 	BackgroundTransparency = 1,
-	Text = "SERVER DASHBOARD",
+	Text = "แดชบอร์ดเซิร์ฟเวอร์",
 	TextColor3 = C.text,
 	Font = FONT,
 	TextSize = 17,
@@ -3218,34 +3342,54 @@ new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 20),
 	Position = UDim2.fromOffset(12, 36),
 	BackgroundTransparency = 1,
-	Text = "ข้อมูลเซิร์ฟเวอร์และผู้เล่น • ขอโทษ HUB " .. VERSION,
+	Text = "ข้อมูลเซิร์ฟเวอร์ • สถานะของเรา • สถานะผู้เล่นอื่น • ขอโทษ HUB " .. VERSION,
 	TextColor3 = Color3.fromRGB(145, 160, 200),
 	Font = Enum.Font.GothamMedium,
 	TextSize = 11,
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
-Label(pStatus, "SERVER")
+-- สีแยกกลุ่ม: ฟ้า = เซิร์ฟเวอร์, เขียว = ของเรา, ส้ม = ผู้เล่นอื่น
+StatusUI.tintServer = C.accent
+StatusUI.tintMe = Color3.fromRGB(46, 190, 110)
+StatusUI.tintOther = Color3.fromRGB(240, 150, 40)
 
-statusRow(pStatus, "FE", "FE")
-statusRow(pStatus, "Job ID", "JobID")
-statusRow(pStatus, "Place ID", "PlaceID")
-statusRow(pStatus, "Country", "Country")
-statusRow(pStatus, "Map Name", "MapName")
-statusRow(pStatus, "Game", "GameName")
-statusRow(pStatus, "Creator", "Creator")
+StatusUI.gap(pStatus, 2)
 
-Label(pStatus, "PLAYER")
+-- ===== โซน 1: เซิร์ฟเวอร์ =====
+StatusUI.banner(pStatus, "ข้อมูลเซิร์ฟเวอร์", "ข้อมูลของเซิร์ฟเวอร์/แมพที่เล่นอยู่", StatusUI.tintServer)
 
-statusRow(pStatus, "User ID", "UserID")
-statusRow(pStatus, "FPS", "FPS")
-statusRow(pStatus, "Ping", "Ping")
+statusRow(pStatus, "ระบบ FE", "FE", StatusUI.tintServer)
+statusRow(pStatus, "รหัสเซิร์ฟเวอร์", "JobID", StatusUI.tintServer)
+statusRow(pStatus, "รหัสแมพ", "PlaceID", StatusUI.tintServer)
+statusRow(pStatus, "ชื่อแมพ", "MapName", StatusUI.tintServer)
+statusRow(pStatus, "ชื่อเกม", "GameName", StatusUI.tintServer)
+statusRow(pStatus, "ผู้สร้างเกม", "Creator", StatusUI.tintServer)
+
+StatusUI.gap(pStatus, 10)
+
+-- ===== โซน 2: สถานะของเรา =====
+StatusUI.banner(pStatus, "สถานะของเรา", "ข้อมูลของตัวเราเอง (อัปเดตสด)", StatusUI.tintMe)
+
+statusRow(pStatus, "ชื่อ", "MyName", StatusUI.tintMe)
+statusRow(pStatus, "รหัสผู้เล่น", "UserID", StatusUI.tintMe)
+statusRow(pStatus, "ประเทศของเรา", "Country", StatusUI.tintMe)
+statusRow(pStatus, "อายุบัญชี", "MyAge", StatusUI.tintMe)
+statusRow(pStatus, "Premium", "MyPrem", StatusUI.tintMe)
+statusRow(pStatus, "ทีม", "MyTeam", StatusUI.tintMe)
+statusRow(pStatus, "เลือด", "MyHP", StatusUI.tintMe)
+statusRow(pStatus, "ความเร็วตอนนี้", "MySpeed", StatusUI.tintMe)
+statusRow(pStatus, "เฟรมเรต (FPS)", "FPS", StatusUI.tintMe)
+statusRow(pStatus, "ปิง (Ping)", "Ping", StatusUI.tintMe)
+
+StatusUI.gap(pStatus, 10)
 
 -- ===== ดูสถานะผู้เล่นคนอื่น (เลือกจากรายชื่อ -> ดูข้อมูล + ประเทศ) =====
 do
-	Label(pStatus, "ดูสถานะผู้เล่นคนอื่น")
+	-- ===== โซน 3: ผู้เล่นคนอื่น (ไม่รวมตัวเรา) =====
+	StatusUI.banner(pStatus, "สถานะผู้เล่นอื่น", "เลือกชื่อจากรายชื่อด้านล่าง (ไม่รวมตัวเรา)", StatusUI.tintOther)
 
-	local sel = LP
+	local sel = nil
 	local card = {}
 
 	local listBox = new("ScrollingFrame", {
@@ -3269,39 +3413,11 @@ do
 	}, listBox)
 
 	local function infoRow(title, key)
-		local row = new("Frame", {
-			Size = UDim2.new(1, -10, 0, 38),
-			BackgroundColor3 = C.row
-		}, pStatus)
-
-		corner(row, 7)
-
-		new("TextLabel", {
-			Size = UDim2.new(0.34, 0, 1, 0),
-			Position = UDim2.fromOffset(12, 0),
-			BackgroundTransparency = 1,
-			Text = title,
-			TextColor3 = Color3.fromRGB(150, 165, 205),
-			Font = Enum.Font.GothamMedium,
-			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Left
-		}, row)
-
-		card[key] = new("TextLabel", {
-			Size = UDim2.new(0.62, -5, 1, 0),
-			Position = UDim2.new(0.34, 0, 0, 0),
-			BackgroundTransparency = 1,
-			Text = "--",
-			TextColor3 = C.text,
-			Font = FONT,
-			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Right,
-			TextTruncate = Enum.TextTruncate.AtEnd
-		}, row)
+		card[key] = statusRow(pStatus, title, nil, StatusUI.tintOther, 0.34)
 	end
 
 	infoRow("ชื่อ", "name")
-	infoRow("User ID", "uid")
+	infoRow("รหัสผู้เล่น", "uid")
 	infoRow("ประเทศ", "country")
 	infoRow("อายุบัญชี", "age")
 	infoRow("Premium", "prem")
@@ -3315,7 +3431,7 @@ do
 	new("TextLabel", {
 		Size = UDim2.new(1, -10, 0, 44),
 		BackgroundTransparency = 1,
-		Text = "ประเทศดูจากไอพีที่ Roblox เห็น ถ้าใช้ VPN อาจไม่ตรง • FPS/Ping ของคนอื่นดึงไม่ได้ (เกมไม่เปิดข้อมูลนี้)",
+		Text = "ประเทศดูจากไอพีที่ Roblox เห็น ถ้าใช้ VPN อาจไม่ตรง • FPS/ปิง ของคนอื่นดึงไม่ได้ (เกมไม่เปิดข้อมูลนี้)",
 		TextColor3 = Color3.fromRGB(120, 130, 170),
 		Font = Enum.Font.GothamMedium,
 		TextSize = 11,
@@ -3333,12 +3449,13 @@ do
 
 		local p = sel
 
-		if not (p and p.Parent == Players) then
+		if not (p and p.Parent == Players and p ~= LP) then
 			for _, l in pairs(card) do
 				l.Text = "--"
+				l.TextColor3 = C.text
 			end
 
-			card.name.Text = "เลือกผู้เล่นจากรายชื่อด้านบน"
+			card.name.Text = "ไม่มีผู้เล่นคนอื่นในเซิร์ฟ"
 			return
 		end
 
@@ -3379,9 +3496,7 @@ do
 
 		local _, _, myRoot = getChar()
 
-		if p == LP then
-			card.dist.Text = "ตัวคุณเอง"
-		elseif root and myRoot then
+		if root and myRoot then
 			card.dist.Text = num((root.Position - myRoot.Position).Magnitude) .. " studs"
 		else
 			card.dist.Text = "--"
@@ -3426,25 +3541,34 @@ do
 		local plist = {}
 
 		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Parent == Players then
+			-- ไม่ใส่ตัวเราในรายชื่อนี้ (ของเราอยู่ในโซน "สถานะของเรา" ด้านบนแล้ว)
+			if p.Parent == Players and p ~= LP then
 				plist[#plist + 1] = p
 			end
 		end
 
-		-- ตัวเองอยู่บนสุด ที่เหลือเรียงตามชื่อ
 		table.sort(plist, function(a, b)
-			if a == b then return false end
-			if a == LP then return true end
-			if b == LP then return false end
-
 			return a.DisplayName:lower() < b.DisplayName:lower()
 		end)
+
+		-- ถ้ายังไม่ได้เลือก/คนที่เลือกออกไปแล้ว ให้เลือกคนแรกในรายชื่ออัตโนมัติ
+		local stillHere = false
+
+		for _, p in ipairs(plist) do
+			if p == sel then
+				stillHere = true
+			end
+		end
+
+		if not stillHere then
+			sel = plist[1]
+		end
 
 		for _, p in ipairs(plist) do
 			local b = new("TextButton", {
 				Size = UDim2.new(1, -6, 0, 26),
-				BackgroundColor3 = (sel == p) and C.accent or C.off,
-				Text = p.DisplayName .. " (@" .. p.Name .. ")" .. (p == LP and " • คุณ" or ""),
+				BackgroundColor3 = (sel == p) and StatusUI.tintOther or C.off,
+				Text = p.DisplayName .. " (@" .. p.Name .. ")",
 				TextColor3 = C.text,
 				Font = FONT,
 				TextSize = 12,
@@ -3469,7 +3593,7 @@ do
 		CountryLib.forget(p)
 
 		if sel == p then
-			sel = LP
+			sel = nil
 		end
 
 		task.defer(function()
@@ -3505,8 +3629,8 @@ end
 
 statusUpdater = task.spawn(function()
 	while gui.Parent do
-		updateStatus()
-		task.wait(1)
+		pcall(updateStatus)
+		task.wait(0.5)
 	end
 end)
 
