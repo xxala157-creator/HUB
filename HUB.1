@@ -131,113 +131,9 @@ local overlay = new("ScreenGui", {
 }, guiParent)
 
 
--- V4.9: แถบสถานะสดแบบ Compact HUD (HP / FPS / Ping / สถานะฟีเจอร์)
-local hudRoot = new("Frame", {
-	Name = "KTHubStatusHUD",
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 38),
-	Size = UDim2.fromOffset(330, 62),
-	BackgroundColor3 = C.panel,
-	BorderSizePixel = 0,
-	ZIndex = 50
-}, overlay)
-corner(hudRoot, 12)
-stroke(hudRoot, Color3.fromRGB(115, 105, 255), 1.4)
-new("UIGradient", {
-	Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 24, 60)),
-		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(24, 22, 72)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 48, 68))
-	}),
-	Rotation = 0
-}, hudRoot)
+-- V4.9: live status card is embedded in the "สถานะ" tab, not floating on screen.
+local hudHpFill, hudHpValue, hudStats, hudImmortal, hudAntiFling
 
-new("TextLabel", {
-	Size = UDim2.new(0.68, 0, 0, 16),
-	Position = UDim2.fromOffset(10, 4),
-	BackgroundTransparency = 1,
-	Text = "✦ ขอโทษ HUB  •  V4.9",
-	TextColor3 = Color3.fromRGB(125, 220, 255),
-	Font = FONT,
-	TextSize = 11,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 51
-}, hudRoot)
-new("TextLabel", {
-	Size = UDim2.fromOffset(78, 16),
-	Position = UDim2.new(1, -88, 0, 4),
-	BackgroundColor3 = Color3.fromRGB(35, 150, 105),
-	Text = "● LIVE",
-	TextColor3 = Color3.new(1, 1, 1),
-	Font = FONT,
-	TextSize = 10,
-	ZIndex = 51
-}, hudRoot)
-
-local hudHpTrack = new("Frame", {
-	Position = UDim2.fromOffset(10, 25),
-	Size = UDim2.fromOffset(142, 8),
-	BackgroundColor3 = Color3.fromRGB(42, 51, 78),
-	BorderSizePixel = 0,
-	ZIndex = 51
-}, hudRoot)
-corner(hudHpTrack, 6)
-local hudHpFill = new("Frame", {
-	Size = UDim2.new(1, 0, 1, 0),
-	BackgroundColor3 = Color3.fromRGB(52, 215, 135),
-	BorderSizePixel = 0,
-	ZIndex = 52
-}, hudHpTrack)
-corner(hudHpFill, 6)
-new("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(42, 230, 155), Color3.fromRGB(35, 170, 255)),
-	Rotation = 0
-}, hudHpFill)
-local hudHpValue = new("TextLabel", {
-	Position = UDim2.fromOffset(160, 20),
-	Size = UDim2.fromOffset(58, 17),
-	BackgroundTransparency = 1,
-	Text = "HP --",
-	TextColor3 = Color3.fromRGB(225, 255, 235),
-	Font = FONT,
-	TextSize = 10,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 51
-}, hudRoot)
-local hudStats = new("TextLabel", {
-	Position = UDim2.fromOffset(218, 20),
-	Size = UDim2.fromOffset(104, 17),
-	BackgroundTransparency = 1,
-	Text = "FPS -- • Ping --",
-	TextColor3 = Color3.fromRGB(200, 205, 255),
-	Font = Enum.Font.GothamMedium,
-	TextSize = 9,
-	TextXAlignment = Enum.TextXAlignment.Right,
-	TextTruncate = Enum.TextTruncate.AtEnd,
-	ZIndex = 51
-}, hudRoot)
-local hudImmortal = new("TextLabel", {
-	Position = UDim2.fromOffset(10, 39),
-	Size = UDim2.fromOffset(146, 16),
-	BackgroundTransparency = 1,
-	Text = "✦ IMMORTAL: OFF",
-	TextColor3 = Color3.fromRGB(170, 180, 205),
-	Font = FONT,
-	TextSize = 9,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 51
-}, hudRoot)
-local hudAntiFling = new("TextLabel", {
-	Position = UDim2.fromOffset(164, 39),
-	Size = UDim2.fromOffset(158, 16),
-	BackgroundTransparency = 1,
-	Text = "◈ ANTI-FLING: OFF",
-	TextColor3 = Color3.fromRGB(170, 180, 205),
-	Font = FONT,
-	TextSize = 9,
-	TextXAlignment = Enum.TextXAlignment.Right,
-	ZIndex = 51
-}, hudRoot)
 
 -- Drag
 local function makeDraggable(handle, target)
@@ -3494,6 +3390,105 @@ new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
+-- V4.9: การ์ดสถานะสดอยู่ภายในแท็บ "สถานะ" ตามรูปแบบการ์ดของ UI หลัก
+local liveCard = new("Frame", {
+	Name = "LiveStatusCard",
+	Size = UDim2.new(1, -10, 0, 106),
+	BackgroundColor3 = C.row,
+	BorderSizePixel = 0
+}, pStatus)
+corner(liveCard, 10)
+stroke(liveCard, Color3.fromRGB(45, 160, 255), 1.2)
+
+new("TextLabel", {
+	Position = UDim2.fromOffset(12, 7),
+	Size = UDim2.new(1, -24, 0, 19),
+	BackgroundTransparency = 1,
+	Text = "สถานะเรียลไทม์",
+	TextColor3 = Color3.fromRGB(125, 220, 255),
+	Font = FONT,
+	TextSize = 14,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, liveCard)
+
+local liveBadge = new("TextLabel", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -12, 0, 7),
+	Size = UDim2.fromOffset(64, 20),
+	BackgroundColor3 = Color3.fromRGB(35, 150, 105),
+	BorderSizePixel = 0,
+	Text = "● LIVE",
+	TextColor3 = Color3.new(1, 1, 1),
+	Font = FONT,
+	TextSize = 10
+}, liveCard)
+corner(liveBadge, 6)
+
+local liveHpTrack = new("Frame", {
+	Position = UDim2.fromOffset(12, 34),
+	Size = UDim2.new(0.47, -12, 0, 10),
+	BackgroundColor3 = Color3.fromRGB(42, 51, 78),
+	BorderSizePixel = 0
+}, liveCard)
+corner(liveHpTrack, 5)
+hudHpFill = new("Frame", {
+	Size = UDim2.new(1, 0, 1, 0),
+	BackgroundColor3 = Color3.fromRGB(52, 215, 135),
+	BorderSizePixel = 0
+}, liveHpTrack)
+corner(hudHpFill, 5)
+new("UIGradient", {
+	Color = ColorSequence.new(Color3.fromRGB(42, 230, 155), Color3.fromRGB(35, 170, 255)),
+	Rotation = 0
+}, hudHpFill)
+
+hudHpValue = new("TextLabel", {
+	Position = UDim2.new(0.49, 0, 0, 30),
+	Size = UDim2.new(0.20, 0, 0, 18),
+	BackgroundTransparency = 1,
+	Text = "HP --/--",
+	TextColor3 = Color3.fromRGB(225, 255, 235),
+	Font = FONT,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, liveCard)
+
+hudStats = new("TextLabel", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -12, 0, 30),
+	Size = UDim2.new(0.30, 0, 0, 18),
+	BackgroundTransparency = 1,
+	Text = "FPS -- • Ping --",
+	TextColor3 = Color3.fromRGB(200, 205, 255),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Right,
+	TextTruncate = Enum.TextTruncate.AtEnd
+}, liveCard)
+
+hudImmortal = new("TextLabel", {
+	Position = UDim2.fromOffset(12, 68),
+	Size = UDim2.new(0.48, -12, 0, 20),
+	BackgroundTransparency = 1,
+	Text = "✦ IMMORTAL: OFF",
+	TextColor3 = Color3.fromRGB(170, 180, 205),
+	Font = FONT,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, liveCard)
+
+hudAntiFling = new("TextLabel", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -12, 0, 68),
+	Size = UDim2.new(0.48, 0, 0, 20),
+	BackgroundTransparency = 1,
+	Text = "◈ ANTI-FLING: OFF",
+	TextColor3 = Color3.fromRGB(170, 180, 205),
+	Font = FONT,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Right
+}, liveCard)
+
 -- สีแยกกลุ่ม: ฟ้า = เซิร์ฟเวอร์, เขียว = ของเรา, ส้ม = ผู้เล่นอื่น
 StatusUI.tintServer = C.accent
 StatusUI.tintMe = Color3.fromRGB(46, 190, 110)
@@ -3771,7 +3766,7 @@ local function updateStatus()
 		end
 	end
 
-	-- HUD live values and health bar tint
+	-- Live status card values and health bar tint
 	local char = LP.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local hp = hum and math.max(0, hum.Health) or 0
