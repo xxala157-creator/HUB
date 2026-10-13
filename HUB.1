@@ -1,5 +1,6 @@
--- ขอโทษ HUB V4.8
--- V4.8: + อัปเกรดตัวแกะสคริปต์ (Script Viewer/Decoder) รองรับการตรวจจับและแกะสคริปต์ที่ผ่านการ Obfuscation (เช่น IronBrew, Luraph, Moonsec, Prometheus, Byte Tables, String Decryption)
+--// ขอโทษ HUB V4.8
+-- V4.8: Defense tools, health-change alerts, static deobfuscation helpers
+-- หมายเหตุ: การป้องกันความเสียหาย/อมตะจริงต้องตรวจสอบจากเซิร์ฟเวอร์ของเกม
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -15,6 +16,7 @@ local LocalizationService = game:GetService("LocalizationService")
 local LP = Players.LocalPlayer
 
 local ICON_ID = ""
+
 local VERSION = "V4.8"
 
 local env = (getgenv and getgenv()) or _G
@@ -26,10 +28,12 @@ local function track(c)
 	return c
 end
 
+-- V4.7: ที่ลงทะเบียนสวิตช์/สไลเดอร์ (ใช้บันทึก/โหลดการตั้งค่า) + รายการที่ต้องปิดตอน cleanup
 local Ext = {toggles = {}, sliders = {}, cleanups = {}}
 
 local S = {
 	speed = false, speedVal = 50,
+	antiFling = false,
 	fly = false, flyVal = 60,
 	ijump = false,
 	espP = false, espN = false,
@@ -48,6 +52,7 @@ local S = {
 	espLine = false,
 	antiLag = false,
 
+	-- ตรวจจับโปร
 	proDetect = false,
 	proEsp = true,
 	proNotify = true,
@@ -56,6 +61,7 @@ local S = {
 	proFlyTime = 3,
 }
 
+-- รายชื่อคนที่ตรวจเจอว่าโปร [Player] = {fly=, speed=, last=}
 local proFlagged = {}
 
 local C = {
@@ -102,6 +108,7 @@ local function notify(t)
 	end)
 end
 
+-- GUI
 local okG, guiParent = pcall(function()
 	return (gethui and gethui()) or game:GetService("CoreGui")
 end)
@@ -122,6 +129,7 @@ local overlay = new("ScreenGui", {
 	IgnoreGuiInset = true
 }, guiParent)
 
+-- Drag
 local function makeDraggable(handle, target)
 	local dragging, startInput, startPos
 
@@ -160,6 +168,7 @@ local function makeDraggable(handle, target)
 	end))
 end
 
+-- FOV
 local fovCircle = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
@@ -171,6 +180,7 @@ local fovCircle = new("Frame", {
 corner(fovCircle, 1000)
 stroke(fovCircle, C.accent, 1.5)
 
+-- ESP Aim Line
 local aimLine = new("Frame", {
 	AnchorPoint = Vector2.new(0, 0.5),
 	Position = UDim2.fromOffset(0, 0),
@@ -235,6 +245,7 @@ local function setAimLine(head)
 	aimDot.Visible = true
 end
 
+-- Main
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
@@ -311,6 +322,7 @@ stroke(openBtn, C.accent, 2)
 
 if ICON_ID ~= "" then
 	openBtn.Text = ""
+
 	new("ImageLabel", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
@@ -324,6 +336,7 @@ minBtn.MouseButton1Click:Connect(function()
 	openBtn.Visible = true
 end)
 
+-- ปุ่มตอนพับเก็บ: ลากเลื่อนไปมาได้ / แตะเบา ๆ เพื่อเปิดเมนู
 do
 	local DRAG_THRESHOLD = 6
 	local pressing, moved = false, false
@@ -332,6 +345,7 @@ do
 	local function clampPos(x, y)
 		local vp = gui.AbsoluteSize
 		local sz = openBtn.AbsoluteSize
+
 		return math.clamp(x, 0, math.max(vp.X - sz.X, 0)),
 			math.clamp(y, 0, math.max(vp.Y - sz.Y, 0))
 	end
@@ -339,6 +353,7 @@ do
 	track(openBtn.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch then
+
 			pressing = true
 			moved = false
 			startInput = i.Position
@@ -348,17 +363,22 @@ do
 
 	track(UIS.InputChanged:Connect(function(i)
 		if not pressing then return end
+
 		if i.UserInputType == Enum.UserInputType.MouseMovement
 			or i.UserInputType == Enum.UserInputType.Touch then
+
 			local d = i.Position - startInput
+
 			if not moved and d.Magnitude >= DRAG_THRESHOLD then
 				moved = true
 			end
+
 			if moved then
 				local x, y = clampPos(
 					startPos.X.Offset + d.X,
 					startPos.Y.Offset + d.Y
 				)
+
 				openBtn.Position = UDim2.fromOffset(x, y)
 			end
 		end
@@ -366,9 +386,13 @@ do
 
 	track(UIS.InputEnded:Connect(function(i)
 		if not pressing then return end
+
 		if i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch then
+
 			pressing = false
+
+			-- ถ้าไม่ได้ลาก = แตะ → เปิดเมนู
 			if not moved then
 				main.Visible = true
 				openBtn.Visible = false
@@ -377,6 +401,7 @@ do
 	end))
 end
 
+-- Sidebar
 local sidebar = new("ScrollingFrame", {
 	Size = UDim2.new(0, 105, 1, -44),
 	Position = UDim2.fromOffset(8, 36),
@@ -412,6 +437,7 @@ local function selectTab(name)
 	for n, p in pairs(pages) do
 		p.Visible = (n == name)
 	end
+
 	for n, b in pairs(tabBtns) do
 		b.BackgroundColor3 = (n == name) and C.accent or C.row
 	end
@@ -509,6 +535,7 @@ local function Toggle(pg, text, cb, default)
 
 	local function set(v)
 		on = v
+
 		TweenService:Create(
 			knob,
 			TweenInfo.new(0.15),
@@ -528,6 +555,7 @@ local function Toggle(pg, text, cb, default)
 		):Play()
 
 		cb(on)
+
 		if Ext.changed then Ext.changed() end
 	end
 
@@ -599,22 +627,27 @@ local function Slider(pg, text, min, max, def, cb)
 			0,
 			1
 		)
+
 		local v = math.floor(
 			min + (max - min) * rel + 0.5
 		)
+
 		fill.Size = UDim2.fromScale(rel, 1)
 		lbl.Text = text .. ": " .. v
 		cur = v
 		cb(v)
+
 		if Ext.changed then Ext.changed() end
 	end
 
+	-- V4.7: ตั้งค่าจากโค้ด (ใช้ตอนโหลดการตั้งค่า)
 	local function setValue(v)
 		v = math.clamp(math.floor((tonumber(v) or cur) + 0.5), min, max)
 		cur = v
 		fill.Size = UDim2.fromScale((v - min) / (max - min), 1)
 		lbl.Text = text .. ": " .. v
 		cb(v)
+
 		if Ext.changed then Ext.changed() end
 	end
 
@@ -626,6 +659,7 @@ local function Slider(pg, text, min, max, def, cb)
 	bar.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch then
+
 			dragging = true
 			update(i.Position.X)
 		end
@@ -661,56 +695,83 @@ local function Button(pg, text, cb)
 	}, pg)
 
 	corner(b, 5)
+
 	b.MouseButton1Click:Connect(cb)
+
 	return b
 end
 
+-- Helpers
 local function getChar()
 	local c = LP.Character
 	if not c then return end
+
 	return c,
 		c:FindFirstChildOfClass("Humanoid"),
-		c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso")
+		c:FindFirstChild("HumanoidRootPart")
+			or c:FindFirstChild("Torso")
 end
 
 local npcs = {}
+
 local function tryAddNPC(hum)
 	local m = hum.Parent
-	if m and m:IsA("Model") and m ~= LP.Character and not Players:GetPlayerFromCharacter(m) then
+
+	if m and m:IsA("Model")
+		and m ~= LP.Character
+		and not Players:GetPlayerFromCharacter(m) then
+
 		npcs[m] = true
 	end
 end
 
 for _, d in ipairs(Workspace:GetDescendants()) do
-	if d:IsA("Humanoid") then tryAddNPC(d) end
+	if d:IsA("Humanoid") then
+		tryAddNPC(d)
+	end
 end
 
 track(Workspace.DescendantAdded:Connect(function(d)
-	if d:IsA("Humanoid") then task.defer(tryAddNPC, d) end
+	if d:IsA("Humanoid") then
+		task.defer(tryAddNPC, d)
+	end
 end))
 
 local function alive(m)
 	if not m or not m.Parent then return nil end
+
 	local h = m:FindFirstChildOfClass("Humanoid")
-	if not h or h.Health <= 0 then return nil end
+
+	if not h or h.Health <= 0 then
+		return nil
+	end
+
 	return h
 end
 
+-- Movement (วิ่งไว)
+-- เก็บค่าเดิมแยกตามตัวละคร แล้วบังคับความเร็วซ้ำทุกจังหวะ (RenderStepped / Stepped / Heartbeat)
+-- และดักตอนเกมแก้ WalkSpeed ทันที เพื่อให้ทับสคริปต์ของเกมที่คอยรีเซ็ตความเร็วกลับ
 local origWS = setmetatable({}, {__mode = "k"})
 local setSpeed
+
 do
 	local speedHum, speedHumConn
 	local speedGuard = 0
 
 	local function bindSpeedHum(hum)
 		if speedHum == hum then return end
+
 		if speedHumConn then
 			speedHumConn:Disconnect()
 			speedHumConn = nil
 		end
+
 		speedHum = hum
+
 		if hum then
 			speedHumConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+				-- กันลูปไม่รู้จบ ถ้ามีสคริปต์ของเกมแย่งกันตั้งค่ากับเรา
 				if S.speed and speedGuard < 20 and hum.WalkSpeed ~= S.speedVal then
 					speedGuard += 1
 					hum.WalkSpeed = S.speedVal
@@ -721,19 +782,29 @@ do
 
 	local function applySpeed()
 		if not S.speed then return end
+
 		local _, hum = getChar()
 		if not hum then return end
+
 		bindSpeedHum(hum)
+
 		if origWS[hum] == nil then
 			origWS[hum] = hum.WalkSpeed
 		end
+
 		if hum.WalkSpeed ~= S.speedVal then
 			hum.WalkSpeed = S.speedVal
 		end
 	end
 
-	track(RunService.RenderStepped:Connect(applySpeed))
-	track(RunService.Stepped:Connect(applySpeed))
+	track(RunService.RenderStepped:Connect(function()
+		applySpeed()
+	end))
+
+	track(RunService.Stepped:Connect(function()
+		applySpeed()
+	end))
+
 	track(RunService.Heartbeat:Connect(function()
 		speedGuard = 0
 		applySpeed()
@@ -741,16 +812,21 @@ do
 
 	function setSpeed(v)
 		S.speed = v
+
 		if v then
 			applySpeed()
 			return
 		end
+
 		if speedHumConn then
 			speedHumConn:Disconnect()
 			speedHumConn = nil
 		end
+
 		speedHum = nil
+
 		local _, hum = getChar()
+
 		if hum and origWS[hum] ~= nil then
 			hum.WalkSpeed = origWS[hum]
 			origWS[hum] = nil
@@ -758,6 +834,7 @@ do
 	end
 end
 
+-- Fly
 local flyBV, flyBG, flyAtt
 local upHeld, downHeld = false, false
 
@@ -788,7 +865,9 @@ local function padBtn(txt, y, setter)
 	b.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
 			or i.UserInputType == Enum.UserInputType.Touch then
+
 			setter(true)
+
 			i.Changed:Connect(function()
 				if i.UserInputState == Enum.UserInputState.End then
 					setter(false)
@@ -798,24 +877,49 @@ local function padBtn(txt, y, setter)
 	end)
 end
 
-padBtn("ขึ้น", 0, function(v) upHeld = v end)
-padBtn("ลง", 60, function(v) downHeld = v end)
+padBtn("ขึ้น", 0, function(v)
+	upHeld = v
+end)
+
+padBtn("ลง", 60, function(v)
+	downHeld = v
+end)
 
 local function stopFly()
-	if flyBV then flyBV:Destroy(); flyBV = nil end
-	if flyBG then flyBG:Destroy(); flyBG = nil end
-	if flyAtt then flyAtt:Destroy(); flyAtt = nil end
+	if flyBV then
+		flyBV:Destroy()
+		flyBV = nil
+	end
+
+	if flyBG then
+		flyBG:Destroy()
+		flyBG = nil
+	end
+
+	if flyAtt then
+		flyAtt:Destroy()
+		flyAtt = nil
+	end
+
 	local _, hum = getChar()
-	if hum then hum.PlatformStand = false end
+
+	if hum then
+		hum.PlatformStand = false
+	end
+
 	flyPad.Visible = false
 	upHeld, downHeld = false, false
 end
 
 local function startFly()
 	stopFly()
+
 	local _, hum, root = getChar()
+
 	if not (hum and root) then return end
+
 	flyAtt = new("Attachment", {Name = "_HubFlyAtt"}, root)
+
 	flyBV = new("LinearVelocity", {
 		Attachment0 = flyAtt,
 		MaxForce = math.huge,
@@ -823,6 +927,7 @@ local function startFly()
 		RelativeTo = Enum.ActuatorRelativeTo.World,
 		VectorVelocity = Vector3.zero
 	}, root)
+
 	flyBG = new("AlignOrientation", {
 		Attachment0 = flyAtt,
 		Mode = Enum.OrientationAlignmentMode.OneAttachment,
@@ -830,29 +935,43 @@ local function startFly()
 		Responsiveness = 200,
 		CFrame = root.CFrame
 	}, root)
+
 	hum.PlatformStand = true
 	flyPad.Visible = true
 end
 
 local function setFly(v)
 	S.fly = v
-	if v then startFly() else stopFly() end
+
+	if v then
+		startFly()
+	else
+		stopFly()
+	end
 end
 
 track(UIS.JumpRequest:Connect(function()
 	if S.ijump then
 		local _, hum = getChar()
-		if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+
+		if hum then
+			hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
 	end
 end))
 
+-- ESP
 local function clearESP(m)
 	local hl = m:FindFirstChild("_HubHL")
-	if hl then hl:Destroy() end
+
+	if hl then
+		hl:Destroy()
+	end
 end
 
 local function applyESP(m, color, label)
 	if not m:FindFirstChild("_HubHL") then
+
 		local hl = new("Highlight", {
 			Name = "_HubHL",
 			FillColor = color,
@@ -861,7 +980,9 @@ local function applyESP(m, color, label)
 			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
 			Adornee = m
 		}, m)
+
 		local head = m:FindFirstChild("Head")
+
 		if head then
 			local bb = new("BillboardGui", {
 				Name = "_HubTag",
@@ -870,6 +991,7 @@ local function applyESP(m, color, label)
 				AlwaysOnTop = true,
 				Adornee = head
 			}, hl)
+
 			new("TextLabel", {
 				Size = UDim2.fromScale(1, 1),
 				BackgroundTransparency = 1,
@@ -885,33 +1007,49 @@ end
 
 task.spawn(function()
 	while gui.Parent do
+
 		if S.espN then
 			for m in pairs(npcs) do
 				if alive(m) then
-					applyESP(m, Color3.fromRGB(255, 80, 80), m.Name)
+					applyESP(
+						m,
+						Color3.fromRGB(255, 80, 80),
+						m.Name
+					)
 				else
 					clearESP(m)
-					if not m.Parent then npcs[m] = nil end
+
+					if not m.Parent then
+						npcs[m] = nil
+					end
 				end
 			end
 		end
+
 		if S.espP then
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= LP and p.Character then
+
 					if proFlagged[p] and S.proDetect and S.proEsp then
 						clearESP(p.Character)
 					elseif alive(p.Character) then
-						applyESP(p.Character, Color3.fromRGB(0, 170, 255), p.DisplayName)
+						applyESP(
+							p.Character,
+							Color3.fromRGB(0, 170, 255),
+							p.DisplayName
+						)
 					else
 						clearESP(p.Character)
 					end
 				end
 			end
 		end
+
 		task.wait(1.5)
 	end
 end)
 
+-- Aimlock
 local function updateFovVisible()
 	fovCircle.Visible = S.lockP or S.lockN
 end
@@ -920,81 +1058,137 @@ RunService:BindToRenderStep(
 	"KTHubAim",
 	Enum.RenderPriority.Camera.Value + 1,
 	function()
+
 		if not (S.lockP or S.lockN) then
 			hideAimLine()
 			return
 		end
+
 		local cam = Workspace.CurrentCamera
+
 		if not cam then return end
+
 		local center = cam.ViewportSize / 2
 		local best, bestD
 
 		local function consider(m)
 			if not alive(m) then return end
+
 			local head = m:FindFirstChild("Head")
+
 			if not head then return end
-			local p, onScreen = cam:WorldToViewportPoint(head.Position)
+
+			local p, onScreen =
+				cam:WorldToViewportPoint(head.Position)
+
 			if not onScreen then return end
-			local d = (Vector2.new(p.X, p.Y) - center).Magnitude
-			if d <= S.fov and (not bestD or d < bestD) then
+
+			local d =
+				(Vector2.new(p.X, p.Y) - center).Magnitude
+
+			if d <= S.fov and
+				(not bestD or d < bestD) then
+
 				best, bestD = head, d
 			end
 		end
 
 		if S.lockN then
-			for m in pairs(npcs) do consider(m) end
+			for m in pairs(npcs) do
+				consider(m)
+			end
 		end
+
 		if S.lockP then
 			for _, p in ipairs(Players:GetPlayers()) do
+
 				if p ~= LP and p.Character then
-					local sameTeam = S.teamCheck and LP.Team ~= nil and p.Team == LP.Team
-					if not sameTeam then consider(p.Character) end
+
+					local sameTeam =
+						S.teamCheck
+						and LP.Team ~= nil
+						and p.Team == LP.Team
+
+					if not sameTeam then
+						consider(p.Character)
+					end
 				end
 			end
 		end
 
 		if best then
 			setAimLine(best)
-			local goal = CFrame.lookAt(cam.CFrame.Position, best.Position)
-			cam.CFrame = cam.CFrame:Lerp(goal, 0.5)
+			local goal =
+				CFrame.lookAt(
+					cam.CFrame.Position,
+					best.Position
+				)
+
+			cam.CFrame =
+				cam.CFrame:Lerp(goal, 0.5)
 		else
 			hideAimLine()
 		end
 	end
 )
 
+-- Hitbox (NPC + Player)
 local origSizes = {}
+
 local function growPart(r, size)
 	if not origSizes[r] then
 		origSizes[r] = {size = r.Size, tr = r.Transparency, cc = r.CanCollide}
 	end
+
 	r.Size = Vector3.new(size, size, size)
 	r.Transparency = 0.7
 	r.CanCollide = false
 end
 
+local function restoreHitboxes(onlyPlayers)
+	for part, o in pairs(origSizes) do
+		if part and part.Parent then
+			part.Size = o.size
+			part.Transparency = o.tr
+			part.CanCollide = o.cc
+		end
+
+		origSizes[part] = nil
+	end
+end
+
 task.spawn(function()
 	while gui.Parent do
 		local touched = {}
+
 		if S.hitbox then
 			for m in pairs(npcs) do
 				if alive(m) then
 					local r = m:FindFirstChild("HumanoidRootPart")
-					if r then growPart(r, S.hitSize); touched[r] = true end
+					if r then
+						growPart(r, S.hitSize)
+						touched[r] = true
+					end
 				end
 			end
 		end
+
 		if S.hitboxP then
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= LP and p.Character and alive(p.Character) then
 					local sameTeam = S.hitTeam and LP.Team ~= nil and p.Team == LP.Team
 					if not sameTeam then
 						local r = p.Character:FindFirstChild("HumanoidRootPart")
-						if r then growPart(r, S.hitSizeP); touched[r] = true end
+						if r then
+							growPart(r, S.hitSizeP)
+							touched[r] = true
+						end
 					end
 				end
 			end
 		end
+
+		-- restore anything no longer enabled
 		for part, o in pairs(origSizes) do
 			if not touched[part] then
 				if part and part.Parent then
@@ -1005,36 +1199,66 @@ task.spawn(function()
 				origSizes[part] = nil
 			end
 		end
+
 		task.wait(0.4)
 	end
 end)
 
+-- Noclip
 local noclipConn
+
 local function setNoclip(v)
 	S.noclip = v
-	if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+
+	if noclipConn then
+		noclipConn:Disconnect()
+		noclipConn = nil
+	end
+
 	if v then
-		noclipConn = track(RunService.Stepped:Connect(function()
-			local c = LP.Character
-			if not c then return end
-			for _, part in ipairs(c:GetDescendants()) do
-				if part:IsA("BasePart") then part.CanCollide = false end
-			end
-		end))
+		noclipConn = track(
+			RunService.Stepped:Connect(function()
+
+				local c = LP.Character
+				if not c then return end
+
+				for _, part in ipairs(c:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+					end
+				end
+			end)
+		)
 	end
 end
 
+-- Invisible (ล่องหน)
+-- ซ่อนทั้งตัวละคร (ตัว/หมวก/ของที่ถือ/ชื่อบนหัว/เอฟเฟกต์) และทำซ้ำให้อัตโนมัติ:
+-- ตอนเกิดใหม่, ตอนมีของใหม่โผล่มา, ตอนเกมพยายามเปลี่ยนความโปร่งใสกลับ
+-- หมายเหตุ: เป็นการซ่อนฝั่งเครื่องเรา คนอื่นอาจยังเห็นเราอยู่ (ขึ้นกับเกม)
+-- V4.6: ซ่อนเพิ่ม ForceField/Highlight/SurfaceGui + ทับค่าแบบกันพัง (pcall ต่อชิ้น)
 local setInvisible
+
 do
-	local saved = setmetatable({}, {__mode = "k"})
+	local saved = setmetatable({}, {__mode = "k"}) -- [obj] = {ชื่อค่า = ค่าเดิม}
 	local addConn, loopConn, boundChar
 	local NONE = Enum.HumanoidDisplayDistanceType.None
 
 	local function put(obj, prop, value)
 		local t = saved[obj]
-		if not t then t = {}; saved[obj] = t end
-		if t[prop] == nil then t[prop] = obj[prop] end
-		if obj[prop] ~= value then obj[prop] = value end
+
+		if not t then
+			t = {}
+			saved[obj] = t
+		end
+
+		if t[prop] == nil then
+			t[prop] = obj[prop]
+		end
+
+		if obj[prop] ~= value then
+			obj[prop] = value
+		end
 	end
 
 	local function hide(obj)
@@ -1055,28 +1279,58 @@ do
 	end
 
 	local function bind(c)
-		if addConn then addConn:Disconnect(); addConn = nil end
+		if addConn then
+			addConn:Disconnect()
+			addConn = nil
+		end
+
 		boundChar = c
+
 		if not c then return end
-		for _, d in ipairs(c:GetDescendants()) do hide(d) end
+
+		for _, d in ipairs(c:GetDescendants()) do
+			hide(d)
+		end
+
 		addConn = c.DescendantAdded:Connect(function(d)
-			if S.invisible then hide(d) end
+			if S.invisible then
+				hide(d)
+			end
 		end)
 	end
 
+	-- ทับค่าซ้ำให้ชิ้นเดียว (แยกเป็นฟังก์ชันเพื่อใช้กับ pcall: ชิ้นไหนพังก็ไม่ทำให้ทั้งลูปหยุด)
 	local function applyOne(obj, t)
-		if t.Transparency ~= nil and obj.Transparency ~= 1 then obj.Transparency = 1 end
-		if t.Enabled ~= nil and obj.Enabled ~= false then obj.Enabled = false end
-		if t.Visible ~= nil and obj.Visible ~= false then obj.Visible = false end
-		if t.DisplayDistanceType ~= nil and obj.DisplayDistanceType ~= NONE then obj.DisplayDistanceType = NONE end
+		if t.Transparency ~= nil and obj.Transparency ~= 1 then
+			obj.Transparency = 1
+		end
+
+		if t.Enabled ~= nil and obj.Enabled ~= false then
+			obj.Enabled = false
+		end
+
+		if t.Visible ~= nil and obj.Visible ~= false then
+			obj.Visible = false
+		end
+
+		if t.DisplayDistanceType ~= nil and obj.DisplayDistanceType ~= NONE then
+			obj.DisplayDistanceType = NONE
+		end
 	end
 
 	local function enforce()
 		if not S.invisible then return end
+
 		local c = LP.Character
-		if c ~= boundChar then bind(c) end
+
+		if c ~= boundChar then
+			bind(c)
+		end
+
 		for obj, t in pairs(saved) do
-			if obj.Parent then pcall(applyOne, obj, t) end
+			if obj.Parent then
+				pcall(applyOne, obj, t)
+			end
 		end
 	end
 
@@ -1084,18 +1338,31 @@ do
 		for obj, t in pairs(saved) do
 			if obj.Parent then
 				for prop, val in pairs(t) do
-					pcall(function() obj[prop] = val end)
+					pcall(function()
+						obj[prop] = val
+					end)
 				end
 			end
+
 			saved[obj] = nil
 		end
 	end
 
 	function setInvisible(v)
 		S.invisible = v
-		if addConn then addConn:Disconnect(); addConn = nil end
-		if loopConn then loopConn:Disconnect(); loopConn = nil end
+
+		if addConn then
+			addConn:Disconnect()
+			addConn = nil
+		end
+
+		if loopConn then
+			loopConn:Disconnect()
+			loopConn = nil
+		end
+
 		boundChar = nil
+
 		if v then
 			bind(LP.Character)
 			loopConn = RunService.RenderStepped:Connect(enforce)
@@ -1105,66 +1372,125 @@ do
 	end
 end
 
+-- Pickup one click
 local pickupConn
+
 local function setPickupOnce(v)
 	S.pickupOnce = v
-	if pickupConn then pickupConn:Disconnect(); pickupConn = nil end
+
+	if pickupConn then
+		pickupConn:Disconnect()
+		pickupConn = nil
+	end
+
 	if not v then return end
-	pickupConn = track(Workspace.DescendantAdded:Connect(function(obj)
-		if obj:IsA("ProximityPrompt") then obj.HoldDuration = 0 end
-	end))
+
+	pickupConn = track(
+		Workspace.DescendantAdded:Connect(function(obj)
+			if obj:IsA("ProximityPrompt") then
+				obj.HoldDuration = 0
+			end
+		end)
+	)
+
 	for _, obj in ipairs(Workspace:GetDescendants()) do
-		if obj:IsA("ProximityPrompt") then obj.HoldDuration = 0 end
+		if obj:IsA("ProximityPrompt") then
+			obj.HoldDuration = 0
+		end
 	end
 end
 
+-- Click teleport
 local function clickTeleport(pos)
 	local _, _, root = getChar()
 	if not root then return end
+
 	local cam = Workspace.CurrentCamera
 	if not cam then return end
+
 	local ray = cam:ViewportPointToRay(pos.X, pos.Y)
+
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = {LP.Character}
-	local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+	params.FilterDescendantsInstances = {
+		LP.Character
+	}
+
+	local hit = Workspace:Raycast(
+		ray.Origin,
+		ray.Direction * 1000,
+		params
+	)
+
 	if hit then
-		root.CFrame = CFrame.new(hit.Position + Vector3.new(0, 3, 0))
+		root.CFrame = CFrame.new(
+			hit.Position + Vector3.new(0, 3, 0)
+		)
 	end
 end
 
 local clickTpConn
+
 local function setClickTeleport(v)
 	S.clickTp = v
-	if clickTpConn then clickTpConn:Disconnect(); clickTpConn = nil end
+
+	if clickTpConn then
+		clickTpConn:Disconnect()
+		clickTpConn = nil
+	end
+
 	if v then
-		clickTpConn = track(UIS.InputBegan:Connect(function(i, processed)
-			if processed then return end
-			if i.UserInputType == Enum.UserInputType.MouseButton1
-				or i.UserInputType == Enum.UserInputType.Touch then
-				clickTeleport(i.Position)
-			end
-		end))
+		clickTpConn = track(
+			UIS.InputBegan:Connect(function(i, processed)
+				if processed then
+					return
+				end
+
+				if i.UserInputType == Enum.UserInputType.MouseButton1
+					or i.UserInputType == Enum.UserInputType.Touch then
+
+					clickTeleport(i.Position)
+				end
+			end)
+		)
 	end
 end
 
+-- Player list
 local selectedPlr, listFrame
+
 local function refreshPlayerList()
 	if not listFrame then return end
+
 	for _, c in ipairs(listFrame:GetChildren()) do
-		if c:IsA("TextButton") then c:Destroy() end
+		if c:IsA("TextButton") then
+			c:Destroy()
+		end
 	end
+
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= LP then
+
 			local b = new("TextButton", {
 				Size = UDim2.new(1, -6, 0, 26),
-				BackgroundColor3 = (selectedPlr == p) and C.accent or C.off,
-				Text = p.DisplayName .. " (@" .. p.Name .. ")",
+				BackgroundColor3 =
+					(selectedPlr == p)
+					and C.accent
+					or C.off,
+
+				Text =
+					p.DisplayName ..
+					" (@" ..
+					p.Name ..
+					")",
+
 				TextColor3 = C.text,
 				Font = FONT,
 				TextSize = 12
 			}, listFrame)
+
 			corner(b, 5)
+
 			b.MouseButton1Click:Connect(function()
 				selectedPlr = p
 				refreshPlayerList()
@@ -1174,46 +1500,83 @@ local function refreshPlayerList()
 end
 
 track(Players.PlayerAdded:Connect(refreshPlayerList))
+
 track(Players.PlayerRemoving:Connect(function(p)
-	if selectedPlr == p then selectedPlr = nil end
+	if selectedPlr == p then
+		selectedPlr = nil
+	end
+
 	task.defer(refreshPlayerList)
 end))
 
+-- Warp selected
 local function warpToSelected()
-	if not (selectedPlr and selectedPlr.Character) then
+	if not (
+		selectedPlr
+		and selectedPlr.Character
+	) then
+
 		notify("ยังไม่ได้เลือกผู้เล่น")
 		return
 	end
-	local tr = selectedPlr.Character:FindFirstChild("HumanoidRootPart")
+
+	local tr =
+		selectedPlr.Character:
+		FindFirstChild("HumanoidRootPart")
+
 	local _, _, root = getChar()
+
 	if tr and root then
-		root.CFrame = tr.CFrame * CFrame.new(0, 0, 3)
+		root.CFrame =
+			tr.CFrame *
+			CFrame.new(0, 0, 3)
 	end
 end
 
-local FLING_TIMEOUT = 6
-local FLING_DISTANCE = 250
-local FLING_SPEED = 500
+-- ชนคนกระเด็น: เข้าไปชนเป้าหมายซ้ำ ๆ จนกระเด็น แล้วกลับจุดเดิม
+-- ตอนชนจะทำให้ตัวเราหนัก + หมุน + มีแรงผลัก แล้วคืนค่าทุกอย่างหลังเสร็จ
+local FLING_TIMEOUT = 6      -- วินาทีสูงสุดที่พยายามชน
+local FLING_DISTANCE = 250   -- เป้าหมายห่างจากจุดเริ่มเกินนี้ = กระเด็นแล้ว
+local FLING_SPEED = 500      -- ความเร็วเป้าหมายเกินนี้ = กระเด็นแล้ว
 local flinging = false
 
 local function flingSelected()
-	if flinging then notify("กำลังชนอยู่ รอสักครู่"); return end
+	if flinging then
+		notify("กำลังชนอยู่ รอสักครู่")
+		return
+	end
+
 	local target = selectedPlr
+
 	if not (target and target.Parent == Players and target.Character) then
 		notify("ยังไม่ได้เลือกผู้เล่น")
 		return
 	end
+
 	if S.fly or S.spirit then
 		notify("ปิดบิน/ถอดจิตก่อนใช้ชนคน")
 		return
 	end
+
 	local char, hum, root = getChar()
 	local tChar = target.Character
 	local tRoot = tChar:FindFirstChild("HumanoidRootPart")
 	local tHum = tChar:FindFirstChildOfClass("Humanoid")
-	if not (char and hum and root and tRoot and tHum) then notify("หาตัวละครไม่เจอ"); return end
-	if hum.Health <= 0 or tHum.Health <= 0 then notify("มีตัวละครที่ตายอยู่ ชนไม่ได้"); return end
-	if tHum.Sit then notify("เป้าหมายนั่งอยู่ ชนไม่กระเด็น"); return end
+
+	if not (char and hum and root and tRoot and tHum) then
+		notify("หาตัวละครไม่เจอ")
+		return
+	end
+
+	if hum.Health <= 0 or tHum.Health <= 0 then
+		notify("มีตัวละครที่ตายอยู่ ชนไม่ได้")
+		return
+	end
+
+	if tHum.Sit then
+		notify("เป้าหมายนั่งอยู่ ชนไม่กระเด็น")
+		return
+	end
 
 	flinging = true
 	notify("กำลังชน...")
@@ -1227,23 +1590,40 @@ local function flingSelected()
 	local oldProps = {}
 	local bv
 
-	if hadNoclip then setNoclip(false) end
-	pcall(function() Workspace.FallenPartsDestroyHeight = -1e9 end)
+	-- noclip ต้องปิดชั่วคราว ไม่งั้นตัวเราจะทะลุเป้าหมาย
+	if hadNoclip then
+		setNoclip(false)
+	end
+
+	-- กันตัวเราโดนลบตอนถูกเหวี่ยงตกแมพ
+	if not pcall(function()
+		Workspace.FallenPartsDestroyHeight = -1e9
+	end) then
+		pcall(function()
+			Workspace.FallenPartsDestroyHeight = 0 / 0
+		end)
+	end
 
 	pcall(function()
+		-- ตัวหนัก = แรงชนแรง (เก็บค่าเดิมไว้คืนทีหลัง)
 		for _, part in ipairs(char:GetDescendants()) do
 			if part:IsA("BasePart") then
 				oldProps[part] = part.CustomPhysicalProperties or false
 				part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0.3, 0.5)
 			end
 		end
+
 		bv = Instance.new("BodyVelocity")
 		bv.Name = "_HubFlingBV"
 		bv.Velocity = Vector3.new(9e8, 9e8, 9e8)
 		bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
 		bv.Parent = root
+
 		hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
-		if cam then cam.CameraSubject = tHum end
+
+		if cam then
+			cam.CameraSubject = tHum
+		end
 	end)
 
 	local offsets = {
@@ -1253,85 +1633,163 @@ local function flingSelected()
 		Vector3.new(-2, -0.5, 2)
 	}
 
-	pcall(function()
+	local okLoop = pcall(function()
 		local t0 = os.clock()
 		local step = 0
 		local angle = 0
+
 		while gui.Parent and os.clock() - t0 < FLING_TIMEOUT do
 			local _, myHum, myRoot = getChar()
 			local tc = target.Character
 			local tr = tc and tc:FindFirstChild("HumanoidRootPart")
 			local th = tc and tc:FindFirstChildOfClass("Humanoid")
-			if target.Parent ~= Players or not (tr and th and myHum and myRoot) or myHum.Health <= 0 or th.Health <= 0 then
+
+			if target.Parent ~= Players
+				or not (tr and th and myHum and myRoot)
+				or myHum.Health <= 0
+				or th.Health <= 0 then
+
 				result = "lost"
 				break
 			end
-			if th.Sit then result = "sit"; break end
+
+			if th.Sit then
+				result = "sit"
+				break
+			end
+
 			local tSpeed = tr.AssemblyLinearVelocity.Magnitude
-			if tSpeed > FLING_SPEED or (tr.Position - startPos).Magnitude > FLING_DISTANCE then
+
+			-- กระเด็นแล้ว: เป้าหมายถูกเหวี่ยงห่าง หรือความเร็วสูงผิดปกติ
+			if tSpeed > FLING_SPEED
+				or (tr.Position - startPos).Magnitude > FLING_DISTANCE then
+
 				result = "flung"
 				break
 			end
+
 			step += 1
 			angle += 100
+
+			-- วิ่งนำหน้าเป้าหมายเล็กน้อย จะได้ชนโดนตอนเขากำลังเดิน
 			local lead = th.MoveDirection * math.min(tSpeed, 80) / 1.25
 			local off = offsets[step % #offsets + 1] + lead
-			myRoot.CFrame = CFrame.new(tr.Position) * CFrame.new(off) * CFrame.Angles(math.rad(angle), 0, 0)
+
+			myRoot.CFrame = CFrame.new(tr.Position)
+				* CFrame.new(off)
+				* CFrame.Angles(math.rad(angle), 0, 0)
+
 			myRoot.AssemblyLinearVelocity = Vector3.new(9e7, 9e8, 9e7)
 			myRoot.AssemblyAngularVelocity = Vector3.new(9e8, 9e8, 9e8)
+
 			RunService.Heartbeat:Wait()
 		end
 	end)
 
-	pcall(function() if bv then bv:Destroy() end end)
+	if not okLoop then
+		result = "error"
+	end
+
+	-- เก็บกวาด: เอาแรงผลัก/ความหนักออก คืนสถานะนั่ง และกล้อง
 	pcall(function()
-		for part, props in pairs(oldProps) do
-			if part.Parent then part.CustomPhysicalProperties = props or nil end
+		if bv then
+			bv:Destroy()
 		end
 	end)
-	pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end)
+
+	pcall(function()
+		for part, props in pairs(oldProps) do
+			if part.Parent then
+				part.CustomPhysicalProperties = props or nil
+			end
+		end
+	end)
+
+	pcall(function()
+		hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+	end)
+
 	pcall(function()
 		local _, h2 = getChar()
-		if cam and h2 then cam.CameraSubject = h2 end
+
+		if cam and h2 then
+			cam.CameraSubject = h2
+		end
 	end)
+
+	-- กลับจุดเดิม: ล้างแรงทั้งหมดแล้วย้ายกลับหลายเฟรมจนนิ่ง
 	pcall(function()
 		local frames = 0
+
 		repeat
 			frames += 1
+
 			local c3, h3, r3 = getChar()
 			if not (c3 and r3) then break end
+
 			for _, part in ipairs(c3:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
+
 			r3.CFrame = original * CFrame.new(0, 0.5, 0)
-			if h3 then h3:ChangeState(Enum.HumanoidStateType.GettingUp) end
+
+			if h3 then
+				h3:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end
+
 			RunService.Heartbeat:Wait()
 		until (frames >= 20 and (r3.Position - original.Position).Magnitude < 10) or frames >= 90
 	end)
-	pcall(function() Workspace.FallenPartsDestroyHeight = oldHeight end)
-	if hadNoclip and gui.Parent then setNoclip(true) end
+
+	pcall(function()
+		Workspace.FallenPartsDestroyHeight = oldHeight
+	end)
+
+	if hadNoclip and gui.Parent then
+		setNoclip(true)
+	end
+
 	flinging = false
 
-	if result == "flung" then notify("ชนกระเด็นสำเร็จ กลับจุดเดิมแล้ว")
-	elseif result == "lost" then notify("เป้าหมายหายไป/ตาย กลับจุดเดิมแล้ว")
-	elseif result == "sit" then notify("เป้าหมายนั่งอยู่ ชนไม่กระเด็น กลับจุดเดิมแล้ว")
-	else notify("ชนแล้วไม่กระเด็น กลับจุดเดิมแล้ว") end
+	if result == "flung" then
+		notify("ชนกระเด็นสำเร็จ กลับจุดเดิมแล้ว")
+	elseif result == "lost" then
+		notify("เป้าหมายหายไป/ตาย กลับจุดเดิมแล้ว")
+	elseif result == "sit" then
+		notify("เป้าหมายนั่งอยู่ ชนไม่กระเด็น กลับจุดเดิมแล้ว")
+	elseif result == "error" then
+		notify("ชนไม่สำเร็จ (เกิดข้อผิดพลาด) กลับจุดเดิมแล้ว")
+	else
+		notify("ชนแล้วไม่กระเด็น (หมดเวลา) เกมนี้อาจกันไว้ กลับจุดเดิมแล้ว")
+	end
 end
 
+-- Anti Lag (เปิด/ปิดได้ ปิดแล้วคืนค่าเดิม)
 local antiLagGen = 0
 local antiLagConn
 local antiLagOrig = {}
-local antiLagSaved = {post = {}, fx = setmetatable({}, {__mode = "k"}), parts = setmetatable({}, {__mode = "k"})}
+local antiLagSaved = {
+	post = {},
+	fx = setmetatable({}, {__mode = "k"}),
+	parts = setmetatable({}, {__mode = "k"})
+}
 
 local function antiLagOne(d)
 	if d:IsA("ParticleEmitter") or d:IsA("Trail") then
-		if antiLagSaved.fx[d] == nil then antiLagSaved.fx[d] = d.Enabled end
+		if antiLagSaved.fx[d] == nil then
+			antiLagSaved.fx[d] = d.Enabled
+		end
+
 		d.Enabled = false
+
 	elseif d:IsA("BasePart") and not d:IsA("Terrain") then
-		if antiLagSaved.parts[d] == nil then antiLagSaved.parts[d] = {d.Material, d.CastShadow} end
+		if antiLagSaved.parts[d] == nil then
+			antiLagSaved.parts[d] = {d.Material, d.CastShadow}
+		end
+
 		d.Material = Enum.Material.Plastic
 		d.CastShadow = false
 	end
@@ -1341,75 +1799,136 @@ local function setAntiLag(v)
 	S.antiLag = v
 	antiLagGen += 1
 	local gen = antiLagGen
-	if antiLagConn then antiLagConn:Disconnect(); antiLagConn = nil end
+
+	if antiLagConn then
+		antiLagConn:Disconnect()
+		antiLagConn = nil
+	end
+
 	if v then
 		notify("กำลังลดแลค...")
+
 		pcall(function()
-			if antiLagOrig.quality == nil then antiLagOrig.quality = settings().Rendering.QualityLevel end
+			if antiLagOrig.quality == nil then
+				antiLagOrig.quality = settings().Rendering.QualityLevel
+			end
+
 			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
 		end)
-		if antiLagOrig.shadows == nil then antiLagOrig.shadows = Lighting.GlobalShadows end
+
+		if antiLagOrig.shadows == nil then
+			antiLagOrig.shadows = Lighting.GlobalShadows
+		end
+
 		Lighting.GlobalShadows = false
+
 		for _, e in ipairs(Lighting:GetChildren()) do
 			if e:IsA("PostEffect") then
-				if antiLagSaved.post[e] == nil then antiLagSaved.post[e] = e.Enabled end
+				if antiLagSaved.post[e] == nil then
+					antiLagSaved.post[e] = e.Enabled
+				end
+
 				e.Enabled = false
 			end
 		end
-		antiLagConn = track(Workspace.DescendantAdded:Connect(function(d)
-			task.defer(function()
-				if S.antiLag then pcall(antiLagOne, d) end
+
+		antiLagConn = track(
+			Workspace.DescendantAdded:Connect(function(d)
+				task.defer(function()
+					if S.antiLag then
+						pcall(antiLagOne, d)
+					end
+				end)
 			end)
-		end))
+		)
+
 		task.spawn(function()
 			local n = 0
+
 			for _, d in ipairs(Workspace:GetDescendants()) do
 				if gen ~= antiLagGen then return end
+
 				pcall(antiLagOne, d)
+
 				n += 1
-				if n % 400 == 0 then task.wait() end
+				if n % 400 == 0 then
+					task.wait()
+				end
 			end
-			if gen == antiLagGen then notify("ลดแลคเสร็จแล้ว") end
+
+			if gen == antiLagGen then
+				notify("ลดแลคเสร็จแล้ว")
+			end
 		end)
+
 	else
 		pcall(function()
-			if antiLagOrig.quality ~= nil then settings().Rendering.QualityLevel = antiLagOrig.quality end
+			if antiLagOrig.quality ~= nil then
+				settings().Rendering.QualityLevel = antiLagOrig.quality
+			end
 		end)
+
 		antiLagOrig.quality = nil
+
 		if antiLagOrig.shadows ~= nil then
 			Lighting.GlobalShadows = antiLagOrig.shadows
 			antiLagOrig.shadows = nil
 		end
+
 		for e, en in pairs(antiLagSaved.post) do
-			if e.Parent then e.Enabled = en end
+			if e.Parent then
+				e.Enabled = en
+			end
+
 			antiLagSaved.post[e] = nil
 		end
+
 		task.spawn(function()
 			local n = 0
+
 			for d, en in pairs(antiLagSaved.fx) do
 				if gen ~= antiLagGen then return end
-				if d.Parent then pcall(function() d.Enabled = en end) end
+
+				if d.Parent then
+					pcall(function()
+						d.Enabled = en
+					end)
+				end
+
 				antiLagSaved.fx[d] = nil
+
 				n += 1
-				if n % 400 == 0 then task.wait() end
+				if n % 400 == 0 then
+					task.wait()
+				end
 			end
+
 			for d, o in pairs(antiLagSaved.parts) do
 				if gen ~= antiLagGen then return end
+
 				if d.Parent then
 					pcall(function()
 						d.Material = o[1]
 						d.CastShadow = o[2]
 					end)
 				end
+
 				antiLagSaved.parts[d] = nil
+
 				n += 1
-				if n % 400 == 0 then task.wait() end
+				if n % 400 == 0 then
+					task.wait()
+				end
 			end
-			if gen == antiLagGen then notify("ปิดลดแลคแล้ว คืนค่าเดิมเรียบร้อย") end
+
+			if gen == antiLagGen then
+				notify("ปิดลดแลคแล้ว คืนค่าเดิมเรียบร้อย")
+			end
 		end)
 	end
 end
 
+-- Server Hop (มี UI แจ้งสถานะตอนกด)
 local hopping = false
 local hopAttempt = 0
 
@@ -1464,11 +1983,13 @@ task.spawn(function()
 	while gui.Parent do
 		if hopFrame.Visible and hopTrack.Visible then
 			hopBar.Position = UDim2.fromScale(-0.4, 0)
+
 			local tw = TweenService:Create(
 				hopBar,
 				TweenInfo.new(0.9, Enum.EasingStyle.Linear),
 				{Position = UDim2.fromScale(1, 0)}
 			)
+
 			tw:Play()
 			tw.Completed:Wait()
 		else
@@ -1487,83 +2008,157 @@ local function failHop(text)
 	hopText.Text = text
 	hopTrack.Visible = false
 	hopFrame.Visible = true
+
 	task.delay(2.5, function()
-		if not hopping then hopFrame.Visible = false end
+		if not hopping then
+			hopFrame.Visible = false
+		end
 	end)
 end
 
 local function httpGet(url)
-	local ok, res = pcall(function() return game:HttpGet(url) end)
-	if ok and type(res) == "string" and res ~= "" then return res end
+	local ok, res = pcall(function()
+		return game:HttpGet(url)
+	end)
+
+	if ok and type(res) == "string" and res ~= "" then
+		return res
+	end
+
 	local req = (syn and syn.request) or request or http_request
+
 	if req then
 		local ok2, r = pcall(req, {Url = url, Method = "GET"})
-		if ok2 and r and r.Body then return r.Body end
+
+		if ok2 and r and r.Body then
+			return r.Body
+		end
 	end
+
 	return nil
 end
 
 local function fetchLowServers()
-	local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100"):format(game.PlaceId)
+	local url = (
+		"https://games.roblox.com/v1/games/%d/servers/Public"
+		.. "?sortOrder=Asc&excludeFullGames=true&limit=100"
+	):format(game.PlaceId)
+
 	local body = httpGet(url)
 	if not body then return nil end
-	local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
-	if not (ok and type(data) == "table" and type(data.data) == "table") then return nil end
+
+	local ok, data = pcall(function()
+		return HttpService:JSONDecode(body)
+	end)
+
+	if not (ok and type(data) == "table" and type(data.data) == "table") then
+		return nil
+	end
+
 	local list = {}
+
 	for _, s in ipairs(data.data) do
-		if s.id ~= game.JobId and s.playing and s.maxPlayers and s.playing < s.maxPlayers then
+		if s.id ~= game.JobId
+			and s.playing
+			and s.maxPlayers
+			and s.playing < s.maxPlayers then
+
 			table.insert(list, s)
 		end
 	end
-	table.sort(list, function(a, b) return a.playing < b.playing end)
+
+	table.sort(list, function(a, b)
+		return a.playing < b.playing
+	end)
+
 	return list
 end
 
 local function serverHop()
-	if hopping then return end
+	if hopping then
+		return
+	end
+
 	hopping = true
 	showHop("กำลังย้ายไปเซิร์ฟเวอร์คนน้อย...")
+
 	task.spawn(function()
 		local list = fetchLowServers()
+
 		if not list or #list == 0 then
 			hopping = false
 			failHop(list and "ไม่พบเซิร์ฟเวอร์ที่ย้ายได้" or "ดึงรายชื่อเซิร์ฟไม่สำเร็จ")
 			return
 		end
+
 		local idx = 0
 		local failConn
 		local tryNext
+
 		tryNext = function()
 			idx += 1
 			hopAttempt += 1
 			local mine = hopAttempt
+
 			local s = list[idx]
+
 			if not s or idx > 6 then
-				if failConn then failConn:Disconnect() end
+				if failConn then
+					failConn:Disconnect()
+				end
+
 				hopping = false
 				failHop("ย้ายเซิร์ฟเวอร์ไม่สำเร็จ ลองใหม่อีกครั้ง")
 				return
 			end
-			showHop(("กำลังย้ายไปเซิร์ฟเวอร์คนน้อย... (%d/%d คน)"):format(s.playing, s.maxPlayers))
+
+			showHop(
+				("กำลังย้ายไปเซิร์ฟเวอร์คนน้อย... (%d/%d คน)"):format(
+					s.playing,
+					s.maxPlayers
+				)
+			)
+
 			local ok = pcall(function()
-				TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, LP)
+				TeleportService:TeleportToPlaceInstance(
+					game.PlaceId,
+					s.id,
+					LP
+				)
 			end)
-			if not ok then tryNext(); return end
+
+			if not ok then
+				tryNext()
+				return
+			end
+
 			task.delay(15, function()
-				if hopping and hopAttempt == mine then tryNext() end
+				if hopping and hopAttempt == mine then
+					tryNext()
+				end
 			end)
 		end
-		failConn = track(TeleportService.TeleportInitFailed:Connect(function(plr)
-			if plr == LP and hopping then tryNext() end
-		end))
+
+		failConn = track(
+			TeleportService.TeleportInitFailed:Connect(function(plr)
+				if plr == LP and hopping then
+					tryNext()
+				end
+			end)
+		)
+
 		tryNext()
 	end)
 end
 
+-- Status system
 local statusLabels = {}
 local fpsValue = 0
 
+-- ประเทศ (ดึงแบบแคช ไม่เรียกซ้ำทุกวินาที) ใช้ได้กับผู้เล่นทุกคน
+-- ชื่อไทยสำหรับประเทศที่เจอบ่อย ที่เหลือใช้ชื่ออังกฤษตามรายการของ Roblox
 local CountryLib = {}
+
 do
 	local TH_NAMES = {
 		XX = "ไม่ทราบ", TH = "ไทย", US = "สหรัฐอเมริกา", GB = "สหราชอาณาจักร", CA = "แคนาดา",
@@ -1579,64 +2174,110 @@ do
 		ZA = "แอฟริกาใต้", BR = "บราซิล", MX = "เม็กซิโก", AR = "อาร์เจนตินา", CL = "ชิลี",
 		CO = "โคลอมเบีย", PE = "เปรู"
 	}
+
 	local EN_RAW = "XX=Unknown Country|US=United States|GB=United Kingdom|CA=Canada|AF=Afghanistan|AX=Aland Islands|AL=Albania|DZ=Algeria|AS=American Samoa|AD=Andorra|AO=Angola|AI=Anguilla|AQ=Antarctica|AG=Antigua and Barbuda|AR=Argentina|AM=Armenia|AW=Aruba|AU=Australia|AT=Austria|AZ=Azerbaijan|BS=Bahamas|BH=Bahrain|BD=Bangladesh|BB=Barbados|BY=Belarus|BE=Belgium|BZ=Belize|BJ=Benin|BM=Bermuda|BT=Bhutan|BO=Bolivia|BQ=Bonaire, Saint Eustatius and Saba|BA=Bosnia and Herzegovina|BW=Botswana|BV=Bouvet Island|BR=Brazil|IO=British Indian Ocean Territory|BN=Brunei Darussalam|BG=Bulgaria|BF=Burkina Faso|BI=Burundi|KH=Cambodia|CM=Cameroon|CV=Cape Verde|KY=Cayman Islands|CF=Central African Republic|TD=Chad|CL=Chile|CN=China|CX=Christmas Island|CC=Cocos Islands|CO=Colombia|KM=Comoros|CG=Congo|CD=Congo (DRC)|CK=Cook Islands|CR=Costa Rica|CI=Ivory Coast|HR=Croatia|CW=Curaçao|CY=Cyprus|CZ=Czech Republic|DK=Denmark|DJ=Djibouti|DM=Dominica|DO=Dominican Republic|EC=Ecuador|EG=Egypt|SV=El Salvador|GQ=Equatorial Guinea|ER=Eritrea|EE=Estonia|ET=Ethiopia|FK=Falkland Islands (Malvinas)|FO=Faroe Islands|FJ=Fiji|FI=Finland|FR=France|GF=French Guiana|PF=French Polynesia|TF=French Southern Territories|GA=Gabon|GM=Gambia|GE=Georgia|DE=Germany|GH=Ghana|GI=Gibraltar|GR=Greece|GL=Greenland|GD=Grenada|GP=Guadeloupe|GU=Guam|GT=Guatemala|GG=Guernsey|GN=Guinea|GW=Guinea-Bissau|GY=Guyana|HT=Haiti|HM=Heard Island and the McDonald Islands|VA=Holy See|HN=Honduras|HK=Hong Kong|HU=Hungary|IS=Iceland|IN=India|ID=Indonesia|IQ=Iraq|IE=Ireland|IM=Isle of Man|IL=Israel|IT=Italy|JM=Jamaica|JP=Japan|JE=Jersey|JO=Jordan|KZ=Kazakhstan|KE=Kenya|KI=Kiribati|KR=Korea|KW=Kuwait|KG=Kyrgyzstan|LA=Laos|LV=Latvia|LB=Lebanon|LS=Lesotho|LR=Liberia|LY=Libya|LI=Liechtenstein|LT=Lithuania|LU=Luxembourg|MO=Macao|MK=Macedonia|MG=Madagascar|MW=Malawi|MY=Malaysia|MV=Maldives|ML=Mali|MT=Malta|MH=Marshall Islands|MQ=Martinique|MR=Mauritania|MU=Mauritius|YT=Mayotte|MX=Mexico|FM=Micronesia|MD=Moldova|MC=Monaco|MN=Mongolia|ME=Montenegro|MS=Montserrat|MA=Morocco|MZ=Mozambique|MM=Myanmar|NA=Namibia|NR=Nauru|NP=Nepal|NL=Netherlands|AN=Netherlands Antilles|NC=New Caledonia|NZ=New Zealand|NI=Nicaragua|NE=Niger|NG=Nigeria|NU=Niue|NF=Norfolk Island|MP=Northern Mariana Islands|NO=Norway|OM=Oman|PK=Pakistan|PW=Palau|PS=Palestine|PA=Panama|PG=Papua New Guinea|PY=Paraguay|PE=Peru|PH=Philippines|PN=Pitcairn Islands|PL=Poland|PT=Portugal|PR=Puerto Rico|QA=Qatar|RE=Reunion|RO=Romania|RU=Russian Federation|RW=Rwanda|BL=Saint Barthelemy|SH=Saint Helena, Ascension and Tristan da Cunha|KN=Saint Kitts and Nevis|LC=Saint Lucia|MF=Saint Martin|PM=Saint Pierre and Miquelon|VC=Saint Vincent and the Grenadines|WS=Samoa|SM=San Marino|ST=Sao Tome and Principe|SA=Saudi Arabia|SN=Senegal|RS=Serbia|SC=Seychelles|SL=Sierra Leone|SG=Singapore|SX=Sint Maarten|SK=Slovakia|SI=Slovenia|SB=Solomon Islands|SO=Somalia|ZA=South Africa|GS=South Georgia and the South Sandwich Islands|SS=South Sudan|ES=Spain|LK=Sri Lanka|SR=Suriname|SJ=Svalbard and Jan Mayen|SZ=Swaziland|SE=Sweden|CH=Switzerland|TW=Taiwan|TJ=Tajikistan|TZ=Tanzania|TH=Thailand|TL=Timor-Leste|TG=Togo|TK=Tokelau|TO=Tonga|TT=Trinidad and Tobago|TN=Tunisia|TR=Türkiye (Turkey)|TM=Turkmenistan|TC=Turks and Caicos Islands|TV=Tuvalu|UG=Uganda|UA=Ukraine|AE=United Arab Emirates|UM=United States Minor Outlying Islands|UY=Uruguay|UZ=Uzbekistan|VU=Vanuatu|VE=Venezuela|VN=Vietnam|VG=Virgin Islands (British)|VI=Virgin Islands (US)|WF=Wallis and Futuna|EH=Western Sahara|YE=Yemen|ZM=Zambia|ZW=Zimbabwe|CU=Cuba|IR=Iran|SY=Syria|KP=North Korea"
 	local EN_NAMES = {}
+
 	for pair in string.gmatch(EN_RAW, "[^|]+") do
 		local code, name = string.match(pair, "^(%u%u)=(.+)$")
-		if code then EN_NAMES[code] = name end
+
+		if code then
+			EN_NAMES[code] = name
+		end
 	end
 
-	local cache = {}
+	local cache = {} -- [Player] = {code=, pending=, tries=, at=}
+
 	local function nameOf(code)
 		local name = TH_NAMES[code] or EN_NAMES[code]
-		if name then return name .. " (" .. code .. ")" end
+
+		if name then
+			return name .. " (" .. code .. ")"
+		end
+
 		return code
 	end
 
 	local function fetch(p)
 		local e = cache[p]
+
 		if e then
-			if e.code or e.pending then return e end
-			if e.tries >= 3 or os.clock() - e.at < 10 then return e end
+			if e.code or e.pending then
+				return e
+			end
+
+			-- ลองใหม่ได้สูงสุด 3 ครั้ง ห่างกัน 10 วิ
+			if e.tries >= 3 or os.clock() - e.at < 10 then
+				return e
+			end
 		else
 			e = {tries = 0, at = 0}
 			cache[p] = e
 		end
+
 		e.pending = true
 		e.tries += 1
+
 		task.spawn(function()
 			local ok, res = pcall(function()
 				return LocalizationService:GetCountryRegionForPlayerAsync(p)
 			end)
+
 			e.pending = false
 			e.at = os.clock()
-			if ok and type(res) == "string" and res ~= "" then e.code = res end
+
+			if ok and type(res) == "string" and res ~= "" then
+				e.code = res
+			end
 		end)
+
 		return e
 	end
 
 	function CountryLib.text(p)
 		local e = fetch(p)
-		if e.code then return nameOf(e.code) end
-		if e.pending then return "กำลังโหลด..." end
-		if e.tries >= 3 then return "ดึงไม่ได้" end
+
+		if e.code then
+			return nameOf(e.code)
+		end
+
+		if e.pending then
+			return "กำลังโหลด..."
+		end
+
+		if e.tries >= 3 then
+			return "ดึงไม่ได้"
+		end
+
 		return "กำลังลองใหม่..."
 	end
 
-	function CountryLib.forget(p) cache[p] = nil end
+	function CountryLib.forget(p)
+		cache[p] = nil
+	end
 end
 
+-- ดึงข้อมูลแมพ/ผู้สร้างแค่ครั้งเดียวแล้วจำไว้ (เดิมเรียก GetProductInfo ทุกวินาที ทำให้หน่วง/โดนจำกัด)
 local placeInfo = {creator = "กำลังโหลด...", name = nil, started = false}
+
 function placeInfo.load()
 	if placeInfo.started then return end
 	placeInfo.started = true
+
 	task.spawn(function()
 		local ok, info = pcall(function()
-			return MarketplaceService:GetProductInfo(game.PlaceId, Enum.InfoType.Asset)
+			return MarketplaceService:GetProductInfo(
+				game.PlaceId,
+				Enum.InfoType.Asset
+			)
 		end)
+
 		if not (ok and info) then
-			ok, info = pcall(function() return MarketplaceService:GetProductInfo(game.PlaceId) end)
+			ok, info = pcall(function()
+				return MarketplaceService:GetProductInfo(game.PlaceId)
+			end)
 		end
+
 		if ok and info then
 			placeInfo.name = info.Name
 			placeInfo.creator = (info.Creator and info.Creator.Name) or "ไม่ทราบ"
@@ -1655,26 +2296,44 @@ local function getPing()
 	local ok, value = pcall(function()
 		return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
 	end)
-	if ok and value then return math.floor(value + 0.5) .. " ms" end
+
+	if ok and value then
+		return math.floor(value + 0.5) .. " ms"
+	end
+
 	return "-- ms"
 end
 
 local function getStatusText()
-	local function num(n) return tostring(math.floor(n + 0.5)) end
+	local function num(n)
+		return tostring(math.floor(n + 0.5))
+	end
+
 	placeInfo.load()
+
 	local char = LP.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+
 	local hpText = "--"
 	if hum then
-		hpText = (hum.Health <= 0) and "ตายแล้ว" or (num(hum.Health) .. " / " .. num(hum.MaxHealth))
+		hpText = (hum.Health <= 0) and "ตายแล้ว"
+			or (num(hum.Health) .. " / " .. num(hum.MaxHealth))
 	end
+
 	local speedText = "--"
 	if root then
 		speedText = num(root.AssemblyLinearVelocity.Magnitude) .. " studs/s"
 	end
-	local okAge, age = pcall(function() return LP.AccountAge end)
-	local okMem, mem = pcall(function() return LP.MembershipType end)
+
+	local okAge, age = pcall(function()
+		return LP.AccountAge
+	end)
+
+	local okMem, mem = pcall(function()
+		return LP.MembershipType
+	end)
+
 	return {
 		FE = "เปิดอยู่",
 		JobID = game.JobId ~= "" and game.JobId or "สตูดิโอ",
@@ -1683,6 +2342,8 @@ local function getStatusText()
 		MapName = placeInfo.name or game.Name,
 		GameName = game.Name,
 		Creator = getCreator(),
+
+		-- สถานะของเรา
 		MyName = LP.DisplayName .. " (@" .. LP.Name .. ")",
 		UserID = tostring(LP.UserId),
 		MyAge = (okAge and age) and (age .. " วัน (" .. string.format("%.1f", age / 365) .. " ปี)") or "--",
@@ -1697,11 +2358,15 @@ end
 
 local function statusRow(parent, title, key, tint, leftFrac)
 	leftFrac = leftFrac or 0.38
+
 	local row = new("Frame", {
 		Size = UDim2.new(1, -10, 0, 38),
 		BackgroundColor3 = C.row
 	}, parent)
+
 	corner(row, 7)
+
+	-- แถบสีด้านซ้าย: แยกกลุ่มให้เห็นชัด (เขียว = ของเรา, ส้ม = ผู้เล่นอื่น)
 	if tint then
 		local bar = new("Frame", {
 			Size = UDim2.new(0, 4, 1, -12),
@@ -1709,8 +2374,10 @@ local function statusRow(parent, title, key, tint, leftFrac)
 			BackgroundColor3 = tint,
 			BorderSizePixel = 0
 		}, row)
+
 		corner(bar, 2)
 	end
+
 	new("TextLabel", {
 		Size = UDim2.new(leftFrac, 0, 1, 0),
 		Position = UDim2.fromOffset(tint and 16 or 12, 0),
@@ -1734,17 +2401,24 @@ local function statusRow(parent, title, key, tint, leftFrac)
 		TextTruncate = Enum.TextTruncate.AtEnd
 	}, row)
 
-	if key then statusLabels[key] = value end
+	if key then
+		statusLabels[key] = value
+	end
+
 	return value
 end
 
 local StatusUI = {}
+
+-- แบนเนอร์หัวข้อสีเต็ม ใช้แบ่งโซน "ของเรา" / "ผู้เล่นอื่น" ให้ชัด
 function StatusUI.banner(parent, text, sub, tint)
 	local f = new("Frame", {
 		Size = UDim2.new(1, -10, 0, 44),
 		BackgroundColor3 = tint
 	}, parent)
+
 	corner(f, 8)
+
 	new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 22),
 		Position = UDim2.fromOffset(10, 4),
@@ -1755,6 +2429,7 @@ function StatusUI.banner(parent, text, sub, tint)
 		TextSize = 15,
 		TextXAlignment = Enum.TextXAlignment.Left
 	}, f)
+
 	new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 14),
 		Position = UDim2.fromOffset(10, 26),
@@ -1765,9 +2440,11 @@ function StatusUI.banner(parent, text, sub, tint)
 		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left
 	}, f)
+
 	return f
 end
 
+-- ตัวเว้นช่องว่างระหว่างโซน
 function StatusUI.gap(parent, h)
 	new("Frame", {
 		Size = UDim2.new(1, -10, 0, h or 8),
@@ -1775,44 +2452,130 @@ function StatusUI.gap(parent, h)
 	}, parent)
 end
 
-track(RunService.Heartbeat:Connect(function(dt)
-	if dt > 0 then fpsValue = 1 / dt end
-	local _, hum, root = getChar()
-	if S.fly and flyBV and flyBG and root and hum then
-		local cam = Workspace.CurrentCamera
-		if cam then
-			local look = cam.CFrame.LookVector
-			local right = cam.CFrame.RightVector
-			local flatLook = Vector3.new(look.X, 0, look.Z).Unit
-			local flatRight = Vector3.new(right.X, 0, right.Z).Unit
-			local md = hum.MoveDirection
-			local vel = (look * md:Dot(flatLook) + right * md:Dot(flatRight)) * S.flyVal
-			if upHeld then vel += Vector3.new(0, S.flyVal, 0) end
-			if downHeld then vel -= Vector3.new(0, S.flyVal, 0) end
-			flyBV.VectorVelocity = vel
-			flyBG.CFrame = cam.CFrame
-		end
-	end
-	if S.car and hum then
-		local seat = hum.SeatPart
-		if seat and seat:IsA("VehicleSeat") and seat.Throttle ~= 0 then
-			local r = seat.AssemblyRootPart or seat
-			r.AssemblyLinearVelocity += seat.CFrame.LookVector * seat.Throttle * S.carVal * dt
-		end
-	end
-end))
+local statusUpdater
 
-track(RunService.RenderStepped:Connect(function()
-	if S.light then
-		Lighting.Brightness = S.lightVal
-		Lighting.ClockTime = 14
-		Lighting.GlobalShadows = false
-		Lighting.Ambient = Color3.fromRGB(150, 150, 150)
-	end
-end))
+-- Heartbeat
+track(
+	RunService.Heartbeat:Connect(function(dt)
 
+		if dt > 0 then
+			fpsValue =
+				1 / dt
+		end
+
+		local _, hum, root = getChar()
+
+		if S.fly
+			and flyBV
+			and flyBG
+			and root
+			and hum then
+
+			local cam = Workspace.CurrentCamera
+
+			if cam then
+
+				local look =
+					cam.CFrame.LookVector
+
+				local right =
+					cam.CFrame.RightVector
+
+				local flatLook =
+					Vector3.new(
+						look.X,
+						0,
+						look.Z
+					).Unit
+
+				local flatRight =
+					Vector3.new(
+						right.X,
+						0,
+						right.Z
+					).Unit
+
+				local md =
+					hum.MoveDirection
+
+				local vel =
+					(
+						look * md:Dot(flatLook)
+						+
+						right * md:Dot(flatRight)
+					)
+					* S.flyVal
+
+				if upHeld then
+					vel +=
+						Vector3.new(
+							0,
+							S.flyVal,
+							0
+						)
+				end
+
+				if downHeld then
+					vel -=
+						Vector3.new(
+							0,
+							S.flyVal,
+							0
+						)
+				end
+
+				flyBV.VectorVelocity = vel
+				flyBG.CFrame = cam.CFrame
+			end
+		end
+
+		if S.car and hum then
+
+			local seat = hum.SeatPart
+
+			if seat
+				and seat:IsA("VehicleSeat")
+				and seat.Throttle ~= 0 then
+
+				local r =
+					seat.AssemblyRootPart
+					or seat
+
+				r.AssemblyLinearVelocity +=
+					seat.CFrame.LookVector
+					* seat.Throttle
+					* S.carVal
+					* dt
+			end
+		end
+	end)
+)
+
+track(
+	RunService.RenderStepped:Connect(function()
+
+		if S.light then
+
+			Lighting.Brightness =
+				S.lightVal
+
+			Lighting.ClockTime = 14
+			Lighting.GlobalShadows = false
+
+			Lighting.Ambient =
+				Color3.fromRGB(
+					150,
+					150,
+					150
+				)
+		end
+	end)
+)
+
+-- Zoom out (เปิดแล้วซูมออกได้ไม่จำกัด ไม่ต้องปรับค่า)
 local ZOOM_MAX = 1000000
 local origZoom = {}
+
 local function applyZoom()
 	if not S.zoom then return end
 	pcall(function()
@@ -1823,6 +2586,7 @@ end
 
 local function setZoom(v)
 	S.zoom = v
+
 	if v then
 		if not origZoom.max then
 			origZoom.max = LP.CameraMaxZoomDistance
@@ -1840,6 +2604,7 @@ track(RunService.RenderStepped:Connect(function()
 	if S.zoom then applyZoom() end
 end))
 
+-- Spirit (ถอดจิต / free camera)
 local spiritCF, spiritYaw, spiritPitch = nil, 0, 0
 local spiritRoot, spiritWasAnchored
 local lookHeld = false
@@ -1850,20 +2615,31 @@ local function getMoveVector()
 		local pm = require(LP.PlayerScripts:WaitForChild("PlayerModule", 0.1))
 		return pm:GetControls():GetMoveVector()
 	end)
-	if ok and typeof(v) == "Vector3" then return v end
+
+	if ok and typeof(v) == "Vector3" then
+		return v
+	end
+
 	local x = (UIS:IsKeyDown(Enum.KeyCode.D) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.A) and 1 or 0)
 	local z = (UIS:IsKeyDown(Enum.KeyCode.S) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
 	return Vector3.new(x, 0, z)
 end
 
 track(UIS.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton2 then lookHeld = true end
+	if i.UserInputType == Enum.UserInputType.MouseButton2 then
+		lookHeld = true
+	end
 end))
+
 track(UIS.InputEnded:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton2 then lookHeld = false end
+	if i.UserInputType == Enum.UserInputType.MouseButton2 then
+		lookHeld = false
+	end
 end))
+
 track(UIS.InputChanged:Connect(function(i, processed)
 	if not S.spirit then return end
+
 	if i.UserInputType == Enum.UserInputType.MouseMovement and lookHeld then
 		spiritYaw -= math.rad(i.Delta.X * 0.25)
 		spiritPitch = math.clamp(spiritPitch - math.rad(i.Delta.Y * 0.25), -1.5, 1.5)
@@ -1876,58 +2652,95 @@ end))
 local function stopSpirit()
 	if not S.spirit then return end
 	S.spirit = false
+
 	pcall(function() RunService:UnbindFromRenderStep("KTHubSpirit") end)
-	if spiritPanel then spiritPanel.Visible = false end
-	if spiritRoot and spiritRoot.Parent then spiritRoot.Anchored = spiritWasAnchored or false end
+
+	if spiritPanel then
+		spiritPanel.Visible = false
+	end
+
+	if spiritRoot and spiritRoot.Parent then
+		spiritRoot.Anchored = spiritWasAnchored or false
+	end
 	spiritRoot = nil
+
 	local cam = Workspace.CurrentCamera
 	if cam then
 		cam.CameraType = Enum.CameraType.Custom
 		local _, hum = getChar()
 		if hum then cam.CameraSubject = hum end
 	end
-	if not S.fly then flyPad.Visible = false; upHeld, downHeld = false, false end
+
+	if not S.fly then
+		flyPad.Visible = false
+		upHeld, downHeld = false, false
+	end
 end
 
 local function startSpirit()
 	local cam = Workspace.CurrentCamera
 	local _, hum, root = getChar()
-	if not (cam and hum and root) then notify("ยังไม่มีตัวละคร"); return false end
-	if S.fly then setFly(false) end
+	if not (cam and hum and root) then
+		notify("ยังไม่มีตัวละคร")
+		return false
+	end
+
+	if S.fly then
+		setFly(false)
+	end
+
 	S.spirit = true
 	spiritRoot = root
 	spiritWasAnchored = root.Anchored
 	root.Anchored = true
+
 	spiritCF = cam.CFrame
 	local x, y = spiritCF:ToOrientation()
 	spiritPitch, spiritYaw = x, y
+
 	cam.CameraType = Enum.CameraType.Scriptable
 	flyPad.Visible = true
-	if spiritPanel then spiritPanel.Visible = true end
+
+	if spiritPanel then
+		spiritPanel.Visible = true
+	end
 
 	RunService:BindToRenderStep("KTHubSpirit", Enum.RenderPriority.Camera.Value + 2, function(dt)
 		local c = Workspace.CurrentCamera
 		if not (S.spirit and c) then return end
+
 		c.CameraType = Enum.CameraType.Scriptable
+
 		local rot = CFrame.fromOrientation(spiritPitch, spiritYaw, 0)
 		local mv = getMoveVector()
 		local dir = rot.RightVector * mv.X + rot.LookVector * -mv.Z
+
 		if upHeld then dir += Vector3.yAxis end
 		if downHeld then dir -= Vector3.yAxis end
 		if UIS:IsKeyDown(Enum.KeyCode.E) then dir += Vector3.yAxis end
 		if UIS:IsKeyDown(Enum.KeyCode.Q) then dir -= Vector3.yAxis end
+
 		local pos = spiritCF.Position
-		if dir.Magnitude > 0 then pos += dir.Unit * S.spiritSpeed * dt end
+		if dir.Magnitude > 0 then
+			pos += dir.Unit * S.spiritSpeed * dt
+		end
+
 		spiritCF = CFrame.new(pos) * rot
 		c.CFrame = spiritCF
 	end)
+
 	return true
 end
 
 local function warpToSpirit()
-	if not S.spirit then notify("เปิดถอดจิตก่อน"); return end
+	if not S.spirit then
+		notify("เปิดถอดจิตก่อน")
+		return
+	end
+
 	local _, _, root = getChar()
 	if not root then return end
+
 	root.Anchored = false
 	root.CFrame = CFrame.new(spiritCF.Position + Vector3.new(0, 3, 0))
 	root.AssemblyLinearVelocity = Vector3.zero
@@ -1935,6 +2748,7 @@ local function warpToSpirit()
 	notify("วาร์ปตัวไปที่กล้องแล้ว")
 end
 
+-- UI แยกของถอดจิต: เปิดถอดจิต = UI โผล่ / ปิดถอดจิต = UI หาย
 spiritPanel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.new(0.5, 0, 0, 60),
@@ -1976,9 +2790,15 @@ local spClose = new("TextButton", {
 }, spHeader)
 
 corner(spClose, 5)
+
 spClose.MouseButton1Click:Connect(function()
-	if setSpiritToggle then setSpiritToggle(false) else stopSpirit() end
+	if setSpiritToggle then
+		setSpiritToggle(false)
+	else
+		stopSpirit()
+	end
 end)
+
 makeDraggable(spHeader, spiritPanel)
 
 local spBody = new("Frame", {
@@ -1992,10 +2812,32 @@ new("UIListLayout", {
 	HorizontalAlignment = Enum.HorizontalAlignment.Center
 }, spBody)
 
-Slider(spBody, "ความเร็วถอดจิต", 5, 500, S.spiritSpeed, function(v) S.spiritSpeed = v end)
-Button(spBody, "วาร์ปตัวไปที่กล้อง", warpToSpirit)
+Slider(
+	spBody,
+	"ความเร็วถอดจิต",
+	5,
+	500,
+	S.spiritSpeed,
+	function(v)
+		S.spiritSpeed = v
+	end
+)
 
+Button(
+	spBody,
+	"วาร์ปตัวไปที่กล้อง",
+	warpToSpirit
+)
+
+
+-- =====================================================
+-- ตรวจจับโปร (บินนานผิดปกติ / วิ่งเร็วผิดปกติ)
+-- ไม่นับระบบที่เกมมีให้: รถ/ที่นั่ง, วาร์ปของเกม, กระเด็น/ล้ม,
+-- ว่ายน้ำ/ปีนบันได, พื้นเคลื่อนที่, ระบบบิน/บูสต์ที่เซิร์ฟเวอร์สร้างให้
+-- =====================================================
 local PRO_STEP = 0.25
+
+-- สถานะที่เกมคุมตัวละครเอง: ข้ามทั้งการตรวจบินและวิ่งเร็ว
 local PRO_SKIP_ALL = {
 	[Enum.HumanoidStateType.Dead] = true,
 	[Enum.HumanoidStateType.Seated] = true,
@@ -2003,47 +2845,84 @@ local PRO_SKIP_ALL = {
 	[Enum.HumanoidStateType.Climbing] = true,
 	[Enum.HumanoidStateType.Flying] = true,
 }
+
+-- สถานะล้ม/กระเด็น/สตัน: ข้ามเฉพาะการตรวจวิ่งเร็ว
+-- (ไม่ข้ามตอนตรวจบิน เพราะสคริปต์บินหลายตัวใช้ PlatformStand)
 local PRO_SKIP_SPEED = {
 	[Enum.HumanoidStateType.Ragdoll] = true,
 	[Enum.HumanoidStateType.FallingDown] = true,
 	[Enum.HumanoidStateType.PlatformStanding] = true,
 	[Enum.HumanoidStateType.Physics] = true,
 }
+
 local PRO_RED = Color3.fromRGB(255, 40, 40)
+
 local proTrack = {}
+
+-- ตัวแปรของ UI (กำหนดค่าตอนสร้างหน้า)
 local proCountLabel, proListFrame
 local svCount, svSlots, svList
 
 local function proReason(f)
 	local t = {}
-	if f.fly then t[#t + 1] = "บินนาน" end
-	if f.speed then t[#t + 1] = "วิ่งเร็ว" end
+
+	if f.fly then
+		t[#t + 1] = "บินนาน"
+	end
+
+	if f.speed then
+		t[#t + 1] = "วิ่งเร็ว"
+	end
+
 	return table.concat(t, " + ")
 end
 
+-- แท็บเซิฟ: จำนวนคน + รายชื่อ
 local function updateServerInfo()
-	if not (svCount and svCount.Parent) then return end
-	local n = 0
-	for _, pl in ipairs(Players:GetPlayers()) do
-		if pl.Parent == Players then n = n + 1 end
+	if not (svCount and svCount.Parent) then
+		return
 	end
+
+	local n = 0
+
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl.Parent == Players then
+			n = n + 1
+		end
+	end
+
 	local maxP = Players.MaxPlayers
+
 	svCount.Text = n .. " / " .. maxP .. " คน"
+
 	if svSlots and svSlots.Parent then
 		svSlots.Text = "ว่างอีก " .. math.max(maxP - n, 0) .. " ที่"
 	end
 end
 
 local function refreshServerList()
-	if not (svList and svList.Parent) then return end
-	for _, c in ipairs(svList:GetChildren()) do
-		if c:IsA("TextLabel") then c:Destroy() end
+	if not (svList and svList.Parent) then
+		return
 	end
+
+	for _, c in ipairs(svList:GetChildren()) do
+		if c:IsA("TextLabel") then
+			c:Destroy()
+		end
+	end
+
 	for _, p in ipairs(Players:GetPlayers()) do
 		local f = proFlagged[p]
 		local txt = "  " .. p.DisplayName .. " (@" .. p.Name .. ")"
-		if p == LP then txt = txt .. " • คุณ" end
-		if f then txt = txt .. " • โปร" end
+
+		if p == LP then
+			txt = txt .. " • คุณ"
+		end
+
+		if f then
+			txt = txt .. " • โปร"
+		end
+
 		new("TextLabel", {
 			Size = UDim2.new(1, -8, 0, 24),
 			BackgroundColor3 = C.off,
@@ -2057,16 +2936,25 @@ local function refreshServerList()
 	end
 end
 
+-- แท็บตรวจจับโปร: จำนวน + รายชื่อคนโปร
 local function proRefreshUI()
 	local n = 0
-	for _ in pairs(proFlagged) do n = n + 1 end
+
+	for _ in pairs(proFlagged) do
+		n = n + 1
+	end
+
 	if proCountLabel and proCountLabel.Parent then
 		proCountLabel.Text = "ตรวจพบโปร: " .. n .. " คน"
 	end
+
 	if proListFrame and proListFrame.Parent then
 		for _, c in ipairs(proListFrame:GetChildren()) do
-			if c:IsA("TextLabel") then c:Destroy() end
+			if c:IsA("TextLabel") then
+				c:Destroy()
+			end
 		end
+
 		for p, f in pairs(proFlagged) do
 			new("TextLabel", {
 				Size = UDim2.new(1, -8, 0, 24),
@@ -2080,16 +2968,22 @@ local function proRefreshUI()
 			}, proListFrame)
 		end
 	end
+
 	refreshServerList()
 end
 
+-- ESP คนโปร (สีแดง + ขึ้นว่าโปร)
 local function proClearESP(char)
 	local hl = char:FindFirstChild("_ProHL")
-	if hl then hl:Destroy() end
+
+	if hl then
+		hl:Destroy()
+	end
 end
 
 local function proApplyESP(char, name, reason)
 	local hl = char:FindFirstChild("_ProHL")
+
 	if not hl then
 		hl = new("Highlight", {
 			Name = "_ProHL",
@@ -2099,7 +2993,9 @@ local function proApplyESP(char, name, reason)
 			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
 			Adornee = char
 		}, char)
+
 		local head = char:FindFirstChild("Head")
+
 		if head then
 			local bb = new("BillboardGui", {
 				Name = "_ProTag",
@@ -2108,6 +3004,7 @@ local function proApplyESP(char, name, reason)
 				AlwaysOnTop = true,
 				Adornee = head
 			}, hl)
+
 			new("TextLabel", {
 				Name = "Txt",
 				Size = UDim2.fromScale(1, 1),
@@ -2121,51 +3018,91 @@ local function proApplyESP(char, name, reason)
 			}, bb)
 		end
 	end
+
 	local bb = hl:FindFirstChild("_ProTag")
 	local txt = bb and bb:FindFirstChild("Txt")
-	if txt then txt.Text = name .. "
-โปร • " .. reason end
+
+	if txt then
+		txt.Text = name .. "\nโปร • " .. reason
+	end
 end
 
 local function proResetAll()
-	for p in pairs(proFlagged) do proFlagged[p] = nil end
-	for p in pairs(proTrack) do proTrack[p] = nil end
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p.Character then proClearESP(p.Character) end
+	for p in pairs(proFlagged) do
+		proFlagged[p] = nil
 	end
+
+	for p in pairs(proTrack) do
+		proTrack[p] = nil
+	end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			proClearESP(p.Character)
+		end
+	end
+
 	proRefreshUI()
 end
 
 local function proFlag(p, kind)
 	local f = proFlagged[p]
-	if not f then f = {fly = false, speed = false}; proFlagged[p] = f end
+
+	if not f then
+		f = {fly = false, speed = false}
+		proFlagged[p] = f
+	end
+
 	local was = f[kind]
+
 	f[kind] = true
 	f.last = os.clock()
+
 	if not was then
 		if S.proNotify then
-			notify("ตรวจพบโปร: " .. p.DisplayName .. " (" .. (kind == "fly" and "บินนาน" or "วิ่งเร็ว") .. ")")
+			notify(
+				"ตรวจพบโปร: " .. p.DisplayName
+				.. " (" .. (kind == "fly" and "บินนาน" or "วิ่งเร็ว") .. ")"
+			)
 		end
+
 		proRefreshUI()
 	end
 end
 
+-- ตัวขับเคลื่อนที่ "เซิร์ฟเวอร์" สร้างให้ตัวละคร (เช่น ระบบบิน/บูสต์ของเกม) จะมองเห็นได้ทุกเครื่อง
+-- แต่ถ้าเกมสร้างจาก LocalScript ฝั่งเครื่องผู้เล่นเอง เราจะมองไม่เห็น และแยกจากโปรไม่ได้
 local function proHasGameMover(char)
 	for _, d in ipairs(char:GetDescendants()) do
-		if d:IsA("BodyMover") or d:IsA("LinearVelocity") or d:IsA("VectorForce") or d:IsA("AlignPosition") then
+		if d:IsA("BodyMover")
+			or d:IsA("LinearVelocity")
+			or d:IsA("VectorForce")
+			or d:IsA("AlignPosition") then
 			return true
 		end
 	end
+
 	return false
 end
 
 local proRay = RaycastParams.new()
 proRay.FilterType = Enum.RaycastFilterType.Exclude
 
+-- ยิงเรย์ลงจากตัวละคร: คืนค่า (ระยะถึงพื้น, ชิ้นส่วนพื้น) หรือ nil ถ้าไม่เจอ
+-- ใช้แทนการเชื่อ FloorMaterial อย่างเดียว เพราะค่านี้ของผู้เล่นคนอื่นอาจไม่ตรงความจริง
 local function proProbe(char, root)
 	proRay.FilterDescendantsInstances = {char}
-	local hit = Workspace:Raycast(root.Position, Vector3.new(0, -40, 0), proRay)
-	if hit then return hit.Distance, hit.Instance end
+
+	local hit = Workspace:Raycast(
+		root.Position,
+		Vector3.new(0, -40, 0),
+		proRay
+	)
+
+	if hit then
+		return hit.Distance, hit.Instance
+	end
+
 	return nil, nil
 end
 
@@ -2173,94 +3110,155 @@ local function proSample(p, now)
 	local char = p.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local root = char and char:FindFirstChild("HumanoidRootPart")
+
 	local st = proTrack[p]
+
 	if not st then
-		st = {speedStreak = 0, flyStreak = 0, ys = {}, grace = 0}
+		st = {
+			speedStreak = 0,
+			flyStreak = 0,
+			ys = {},
+			grace = 0
+		}
 		proTrack[p] = st
 	end
+
 	local function clearStreaks()
 		st.speedStreak = 0
 		st.flyStreak = 0
 		st.airStart = nil
 		st.ys = {}
 	end
+
 	if not (char and hum and root) or hum.Health <= 0 then
 		clearStreaks()
 		st.char = nil
 		st.lastPos = nil
 		return
 	end
+
+	-- เกิดใหม่/เปลี่ยนตัวละคร: เว้นช่วงให้ก่อน
 	if st.char ~= char then
 		st.char = char
 		st.lastPos = nil
 		clearStreaks()
 		st.grace = now + 3
 	end
+
 	local pos = root.Position
 	local lastPos, lastT = st.lastPos, st.lastT
+
 	st.lastPos, st.lastT = pos, now
-	if not lastPos then return end
+
+	if not lastPos then
+		return
+	end
+
 	local dt = now - lastT
-	if dt <= 0 then return end
+
+	if dt <= 0 then
+		return
+	end
+
 	local delta = pos - lastPos
+
+	-- วาร์ป/ย้ายจุดของเกม: ข้ามและเว้นช่วง
 	if delta.Magnitude > 150 then
 		clearStreaks()
 		st.grace = now + 2.5
 		return
 	end
-	local okS, state = pcall(function() return hum:GetState() end)
-	if hum.Sit or hum.SeatPart or root.Anchored or (okS and PRO_SKIP_ALL[state]) then
+
+	-- เกมควบคุมตัวละครอยู่ (รถ, ที่นั่ง, ว่ายน้ำ, ปีน ฯลฯ)
+	local okS, state = pcall(function()
+		return hum:GetState()
+	end)
+
+	if hum.Sit
+		or hum.SeatPart
+		or root.Anchored
+		or (okS and PRO_SKIP_ALL[state]) then
+
 		clearStreaks()
 		st.grace = now + 1.5
 		return
 	end
-	if now < st.grace then clearStreaks(); return end
 
+	if now < st.grace then
+		clearStreaks()
+		return
+	end
+
+	-- อยู่บนพื้นไหม: เรย์ใกล้พื้น หรือ FloorMaterial บอกว่าไม่ใช่อากาศ
 	local standDist = hum.HipHeight + 5
 	local dist, ground = proProbe(char, root)
 	local nearGround = dist ~= nil and dist <= standDist
 	local grounded = nearGround or hum.FloorMaterial ~= Enum.Material.Air
 
+	-- ===== วิ่งเร็วผิดปกติ =====
+	-- เทียบกับ WalkSpeed ที่เซิร์ฟเวอร์ตั้งไว้ (เกมบูสต์เองจะถูกนับเป็นปกติ)
 	local flat = Vector3.new(delta.X, 0, delta.Z).Magnitude / dt
 	local allowed = math.max(hum.WalkSpeed, 16) * (S.proSpeedMul / 100)
 	local skipSpeed = okS and PRO_SKIP_SPEED[state]
 
 	if grounded and not skipSpeed and flat > allowed then
 		local gv = ground and ground.AssemblyLinearVelocity
-		local onMoving = gv and Vector3.new(gv.X, 0, gv.Z).Magnitude > 2
+		local onMoving = gv
+			and Vector3.new(gv.X, 0, gv.Z).Magnitude > 2
+
+		-- ยืนบนพื้น/สายพาน/แท่นที่เคลื่อนที่ หรือมีตัวขับเคลื่อนของเกม = ไม่นับ
 		if onMoving or proHasGameMover(char) then
 			st.speedStreak = 0
 		else
-			st.speedStreak += 1
+			st.speedStreak = st.speedStreak + 1
 		end
 	else
 		st.speedStreak = 0
 	end
-	if st.speedStreak >= 5 then proFlag(p, "speed") end
 
+	if st.speedStreak >= 5 then
+		proFlag(p, "speed")
+	end
+
+	-- ===== บินนานผิดปกติ =====
+	-- ลอยอยู่กลางอากาศนานเกินกำหนด และไม่ได้ตกลงตามแรงโน้มถ่วง
 	if not grounded then
 		if not st.airStart then
 			st.airStart = now
 			st.ys = {}
 		end
+
 		local ys = st.ys
+
 		ys[#ys + 1] = {now, pos.Y}
-		while #ys > 0 and now - ys[1][1] > 1.2 do table.remove(ys, 1) end
+
+		while #ys > 0 and now - ys[1][1] > 1.2 do
+			table.remove(ys, 1)
+		end
+
 		local g = Workspace.Gravity
+
+		-- แมพแรงโน้มถ่วงต่ำ = ระบบของเกม ไม่ตรวจ
 		if g >= 60 then
 			local need = S.proFlyTime * math.sqrt(196.2 / g)
+
 			if now - st.airStart >= need and #ys >= 3 then
 				local span = ys[#ys][1] - ys[1][1]
+
 				if span >= 0.7 then
 					local vy = (ys[#ys][2] - ys[1][2]) / span
+
 					if vy > -(g * 0.15) and not proHasGameMover(char) then
-						st.flyStreak += 1
+						st.flyStreak = st.flyStreak + 1
 					else
 						st.flyStreak = 0
 					end
 				end
 			end
-			if st.flyStreak >= 2 then proFlag(p, "fly") end
+
+			if st.flyStreak >= 2 then
+				proFlag(p, "fly")
+			end
 		end
 	else
 		st.airStart = nil
@@ -2269,35 +3267,52 @@ local function proSample(p, now)
 	end
 end
 
+-- ลูปตรวจ
 task.spawn(function()
 	while gui.Parent do
 		if S.proDetect then
 			local now = os.clock()
+
 			for _, p in ipairs(Players:GetPlayers()) do
-				if p ~= LP then pcall(proSample, p, now) end
+				if p ~= LP then
+					pcall(proSample, p, now)
+				end
 			end
+
+			-- ถ้าปิด "จำคนโปรไว้ตลอด" ให้หมดสถานะเองหลัง 20 วินาที
 			if not S.proSticky then
 				local changed = false
+
 				for p, f in pairs(proFlagged) do
 					if f.last and now - f.last > 20 then
 						proFlagged[p] = nil
 						changed = true
-						if p.Character then proClearESP(p.Character) end
+
+						if p.Character then
+							proClearESP(p.Character)
+						end
 					end
 				end
-				if changed then proRefreshUI() end
+
+				if changed then
+					proRefreshUI()
+				end
 			end
 		end
+
 		task.wait(PRO_STEP)
 	end
 end)
 
+-- ลูป ESP คนโปร
 task.spawn(function()
 	while gui.Parent do
 		for _, p in ipairs(Players:GetPlayers()) do
 			local char = p.Character
+
 			if char then
 				local f = proFlagged[p]
+
 				if S.proDetect and S.proEsp and f and alive(char) then
 					proApplyESP(char, p.DisplayName, proReason(f))
 				else
@@ -2305,10 +3320,12 @@ task.spawn(function()
 				end
 			end
 		end
+
 		task.wait(0.5)
 	end
 end)
 
+-- อัปเดตจำนวนคนในเซิฟทุกวินาที + ตอนมีคนเข้า/ออก
 task.spawn(function()
 	while gui.Parent do
 		updateServerInfo()
@@ -2317,21 +3334,34 @@ task.spawn(function()
 end)
 
 track(Players.PlayerAdded:Connect(function()
-	task.defer(function() updateServerInfo(); refreshServerList() end)
+	task.defer(function()
+		updateServerInfo()
+		refreshServerList()
+	end)
 end))
 
 track(Players.PlayerRemoving:Connect(function(p)
 	proTrack[p] = nil
 	proFlagged[p] = nil
-	task.defer(function() updateServerInfo(); proRefreshUI() end)
+
+	task.defer(function()
+		updateServerInfo()
+		proRefreshUI()
+	end)
 end))
 
+-- BUILD PAGES
+
+-- STATUS
 local pStatus = Page("สถานะ")
+
 local statusHeader = new("Frame", {
 	Size = UDim2.new(1, -10, 0, 68),
 	BackgroundColor3 = C.row
 }, pStatus)
+
 corner(statusHeader, 8)
+
 new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 26),
 	Position = UDim2.fromOffset(12, 7),
@@ -2342,6 +3372,7 @@ new("TextLabel", {
 	TextSize = 17,
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
+
 new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 20),
 	Position = UDim2.fromOffset(12, 36),
@@ -2353,12 +3384,16 @@ new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
+-- สีแยกกลุ่ม: ฟ้า = เซิร์ฟเวอร์, เขียว = ของเรา, ส้ม = ผู้เล่นอื่น
 StatusUI.tintServer = C.accent
 StatusUI.tintMe = Color3.fromRGB(46, 190, 110)
 StatusUI.tintOther = Color3.fromRGB(240, 150, 40)
 
 StatusUI.gap(pStatus, 2)
+
+-- ===== โซน 1: เซิร์ฟเวอร์ =====
 StatusUI.banner(pStatus, "ข้อมูลเซิร์ฟเวอร์", "ข้อมูลของเซิร์ฟเวอร์/แมพที่เล่นอยู่", StatusUI.tintServer)
+
 statusRow(pStatus, "ระบบ FE", "FE", StatusUI.tintServer)
 statusRow(pStatus, "รหัสเซิร์ฟเวอร์", "JobID", StatusUI.tintServer)
 statusRow(pStatus, "รหัสแมพ", "PlaceID", StatusUI.tintServer)
@@ -2367,7 +3402,10 @@ statusRow(pStatus, "ชื่อเกม", "GameName", StatusUI.tintServer)
 statusRow(pStatus, "ผู้สร้างเกม", "Creator", StatusUI.tintServer)
 
 StatusUI.gap(pStatus, 10)
+
+-- ===== โซน 2: สถานะของเรา =====
 StatusUI.banner(pStatus, "สถานะของเรา", "ข้อมูลของตัวเราเอง (อัปเดตสด)", StatusUI.tintMe)
+
 statusRow(pStatus, "ชื่อ", "MyName", StatusUI.tintMe)
 statusRow(pStatus, "รหัสผู้เล่น", "UserID", StatusUI.tintMe)
 statusRow(pStatus, "ประเทศของเรา", "Country", StatusUI.tintMe)
@@ -2380,10 +3418,15 @@ statusRow(pStatus, "เฟรมเรต (FPS)", "FPS", StatusUI.tintMe)
 statusRow(pStatus, "ปิง (Ping)", "Ping", StatusUI.tintMe)
 
 StatusUI.gap(pStatus, 10)
+
+-- ===== ดูสถานะผู้เล่นคนอื่น (เลือกจากรายชื่อ -> ดูข้อมูล + ประเทศ) =====
 do
+	-- ===== โซน 3: ผู้เล่นคนอื่น (ไม่รวมตัวเรา) =====
 	StatusUI.banner(pStatus, "สถานะผู้เล่นอื่น", "เลือกชื่อจากรายชื่อด้านล่าง (ไม่รวมตัวเรา)", StatusUI.tintOther)
+
 	local sel = nil
 	local card = {}
+
 	local listBox = new("ScrollingFrame", {
 		Size = UDim2.new(1, -10, 0, 104),
 		BackgroundColor3 = C.row,
@@ -2392,13 +3435,22 @@ do
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new()
 	}, pStatus)
+
 	corner(listBox, 6)
-	new("UIListLayout", {Padding = UDim.new(0, 4)}, listBox)
-	new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4)}, listBox)
+
+	new("UIListLayout", {
+		Padding = UDim.new(0, 4)
+	}, listBox)
+
+	new("UIPadding", {
+		PaddingTop = UDim.new(0, 4),
+		PaddingLeft = UDim.new(0, 4)
+	}, listBox)
 
 	local function infoRow(title, key)
 		card[key] = statusRow(pStatus, title, nil, StatusUI.tintOther, 0.34)
 	end
+
 	infoRow("ชื่อ", "name")
 	infoRow("รหัสผู้เล่น", "uid")
 	infoRow("ประเทศ", "country")
@@ -2414,7 +3466,7 @@ do
 	new("TextLabel", {
 		Size = UDim2.new(1, -10, 0, 44),
 		BackgroundTransparency = 1,
-		Text = "ประเทศดูจากไอพีที่ Roblox เห็น • FPS/ปิง ของคนอื่นดึงไม่ได้",
+		Text = "ประเทศดูจากไอพีที่ Roblox เห็น ถ้าใช้ VPN อาจไม่ตรง • FPS/ปิง ของคนอื่นดึงไม่ได้ (เกมไม่เปิดข้อมูลนี้)",
 		TextColor3 = Color3.fromRGB(120, 130, 170),
 		Font = Enum.Font.GothamMedium,
 		TextSize = 11,
@@ -2423,41 +3475,86 @@ do
 		TextYAlignment = Enum.TextYAlignment.Top
 	}, pStatus)
 
-	local function num(n) return tostring(math.floor(n + 0.5)) end
+	local function num(n)
+		return tostring(math.floor(n + 0.5))
+	end
+
 	local function updateCard()
 		if not (listBox and listBox.Parent) then return end
+
 		local p = sel
+
 		if not (p and p.Parent == Players and p ~= LP) then
-			for _, l in pairs(card) do l.Text = "--"; l.TextColor3 = C.text end
+			for _, l in pairs(card) do
+				l.Text = "--"
+				l.TextColor3 = C.text
+			end
+
 			card.name.Text = "ไม่มีผู้เล่นคนอื่นในเซิร์ฟ"
 			return
 		end
+
 		card.name.Text = p.DisplayName .. " (@" .. p.Name .. ")"
 		card.uid.Text = tostring(p.UserId)
 		card.country.Text = CountryLib.text(p)
-		local okAge, age = pcall(function() return p.AccountAge end)
-		card.age.Text = (okAge and age) and (age .. " วัน") or "--"
-		local okMem, mem = pcall(function() return p.MembershipType end)
+
+		local okAge, age = pcall(function()
+			return p.AccountAge
+		end)
+
+		if okAge and age then
+			card.age.Text = age .. " วัน (" .. string.format("%.1f", age / 365) .. " ปี)"
+		else
+			card.age.Text = "--"
+		end
+
+		local okMem, mem = pcall(function()
+			return p.MembershipType
+		end)
+
 		card.prem.Text = (okMem and mem == Enum.MembershipType.Premium) and "Premium" or "ไม่มี"
 		card.team.Text = p.Team and p.Team.Name or "ไม่มีทีม"
+
 		local char = p.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+
 		if hum then
-			card.hp.Text = (hum.Health <= 0) and "ตายแล้ว" or (num(hum.Health) .. " / " .. num(hum.MaxHealth))
+			if hum.Health <= 0 then
+				card.hp.Text = "ตายแล้ว"
+			else
+				card.hp.Text = num(hum.Health) .. " / " .. num(hum.MaxHealth)
+			end
 		else
 			card.hp.Text = "ไม่มีตัวละคร"
 		end
+
 		local _, _, myRoot = getChar()
+
 		if root and myRoot then
 			card.dist.Text = num((root.Position - myRoot.Position).Magnitude) .. " studs"
 		else
 			card.dist.Text = "--"
 		end
-		if root then card.speed.Text = num(root.AssemblyLinearVelocity.Magnitude) .. " studs/s" else card.speed.Text = "--" end
-		local okLoc, loc = pcall(function() return p.LocaleId end)
-		card.lang.Text = (okLoc and loc and loc ~= "") and loc or "--"
+
+		if root then
+			card.speed.Text = num(root.AssemblyLinearVelocity.Magnitude) .. " studs/s"
+		else
+			card.speed.Text = "--"
+		end
+
+		local okLoc, loc = pcall(function()
+			return p.LocaleId
+		end)
+
+		if okLoc and loc and loc ~= "" then
+			card.lang.Text = loc
+		else
+			card.lang.Text = "--"
+		end
+
 		local f = proFlagged[p]
+
 		if f then
 			card.pro.Text = "โปร: " .. proReason(f)
 			card.pro.TextColor3 = Color3.fromRGB(255, 90, 90)
@@ -2469,17 +3566,39 @@ do
 
 	local function refreshList()
 		if not (listBox and listBox.Parent) then return end
+
 		for _, c in ipairs(listBox:GetChildren()) do
-			if c:IsA("TextButton") then c:Destroy() end
+			if c:IsA("TextButton") then
+				c:Destroy()
+			end
 		end
+
 		local plist = {}
+
 		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Parent == Players and p ~= LP then plist[#plist + 1] = p end
+			-- ไม่ใส่ตัวเราในรายชื่อนี้ (ของเราอยู่ในโซน "สถานะของเรา" ด้านบนแล้ว)
+			if p.Parent == Players and p ~= LP then
+				plist[#plist + 1] = p
+			end
 		end
-		table.sort(plist, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
+
+		table.sort(plist, function(a, b)
+			return a.DisplayName:lower() < b.DisplayName:lower()
+		end)
+
+		-- ถ้ายังไม่ได้เลือก/คนที่เลือกออกไปแล้ว ให้เลือกคนแรกในรายชื่ออัตโนมัติ
 		local stillHere = false
-		for _, p in ipairs(plist) do if p == sel then stillHere = true end end
-		if not stillHere then sel = plist[1] end
+
+		for _, p in ipairs(plist) do
+			if p == sel then
+				stillHere = true
+			end
+		end
+
+		if not stillHere then
+			sel = plist[1]
+		end
+
 		for _, p in ipairs(plist) do
 			local b = new("TextButton", {
 				Size = UDim2.new(1, -6, 0, 26),
@@ -2490,7 +3609,9 @@ do
 				TextSize = 12,
 				TextTruncate = Enum.TextTruncate.AtEnd
 			}, listBox)
+
 			corner(b, 5)
+
 			b.MouseButton1Click:Connect(function()
 				sel = p
 				refreshList()
@@ -2499,38 +3620,66 @@ do
 		end
 	end
 
-	track(Players.PlayerAdded:Connect(function() task.defer(refreshList) end))
+	track(Players.PlayerAdded:Connect(function()
+		task.defer(refreshList)
+	end))
+
 	track(Players.PlayerRemoving:Connect(function(p)
 		CountryLib.forget(p)
-		if sel == p then sel = nil end
-		task.defer(function() refreshList(); updateCard() end)
+
+		if sel == p then
+			sel = nil
+		end
+
+		task.defer(function()
+			refreshList()
+			updateCard()
+		end)
 	end))
 
 	refreshList()
 	updateCard()
+
 	task.spawn(function()
-		while gui.Parent do pcall(updateCard); task.wait(0.5) end
+		while gui.Parent do
+			pcall(updateCard)
+			task.wait(0.5)
+		end
 	end)
 end
 
 local function updateStatus()
-	if not pStatus or not pStatus.Parent then return end
+	if not pStatus or not pStatus.Parent then
+		return
+	end
+
 	local data = getStatusText()
+
 	for key, label in pairs(statusLabels) do
-		if label and label.Parent then label.Text = tostring(data[key] or "--") end
+		if label and label.Parent then
+			label.Text = tostring(data[key] or "--")
+		end
 	end
 end
 
-task.spawn(function()
-	while gui.Parent do pcall(updateStatus); task.wait(0.5) end
+statusUpdater = task.spawn(function()
+	while gui.Parent do
+		pcall(updateStatus)
+		task.wait(0.5)
+	end
 end)
 
+
+-- เซิฟ (จำนวนคนในเซิร์ฟเวอร์)
 local pServer = Page("เซิฟ")
+
 local svHeader = new("Frame", {
 	Size = UDim2.new(1, -10, 0, 76),
 	BackgroundColor3 = C.row
 }, pServer)
+
 corner(svHeader, 8)
+
 new("TextLabel", {
 	Size = UDim2.new(1, -24, 0, 18),
 	Position = UDim2.fromOffset(12, 8),
@@ -2564,13 +3713,25 @@ svSlots = new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Right
 }, svHeader)
 
-Button(pServer, "ย้ายไปเซิร์ฟคนน้อย", serverHop)
+Button(
+	pServer,
+	"ย้ายไปเซิร์ฟคนน้อย",
+	serverHop
+)
 
+-- V4.7: เข้าเซิร์ฟเวอร์เดิมใหม่ (Rejoin) + คัดลอกลิงก์เซิร์ฟเวอร์
 function Ext.server()
 	local rejoining = false
+
 	local function copyText(text)
-		local fn = setclipboard or toclipboard or (env and env.setclipboard) or (syn and syn.write_clipboard)
-		if type(fn) ~= "function" then return false end
+		local fn = setclipboard or toclipboard
+			or (env and env.setclipboard)
+			or (syn and syn.write_clipboard)
+
+		if type(fn) ~= "function" then
+			return false
+		end
+
 		return (pcall(fn, text))
 	end
 
@@ -2583,30 +3744,93 @@ function Ext.server()
 
 	local function rejoin()
 		if rejoining or hopping then return end
+
 		rejoining = true
+
 		local alone = #Players:GetPlayers() <= 1
-		notify(alone and "เซิร์ฟเวอร์มีคนเดียว กำลังเข้าเซิร์ฟเวอร์ใหม่..." or "กำลังเข้าเซิร์ฟเวอร์เดิมใหม่...")
+
+		notify(
+			alone
+				and "เซิร์ฟเวอร์มีคนเดียว กำลังเข้าเซิร์ฟเวอร์ใหม่..."
+				or "กำลังเข้าเซิร์ฟเวอร์เดิมใหม่..."
+		)
+
 		local ok = pcall(function()
 			if alone or game.JobId == "" then
 				TeleportService:Teleport(game.PlaceId, LP)
 			else
-				TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+				TeleportService:TeleportToPlaceInstance(
+					game.PlaceId,
+					game.JobId,
+					LP
+				)
 			end
 		end)
-		if not ok then rejoining = false; notify("เข้าเซิร์ฟเวอร์ใหม่ไม่สำเร็จ"); return end
-		task.delay(20, function() rejoining = false end)
+
+		if not ok then
+			rejoining = false
+			notify("เข้าเซิร์ฟเวอร์ใหม่ไม่สำเร็จ")
+			return
+		end
+
+		task.delay(20, function()
+			rejoining = false
+		end)
 	end
 
-	Button(pServer, "เข้าเซิร์ฟเวอร์เดิมใหม่ (Rejoin)", rejoin)
-	Button(pServer, "คัดลอกลิงก์เซิร์ฟเวอร์", function()
-		if game.JobId == "" then notify("ไม่พบ JobId ของเซิร์ฟเวอร์นี้"); return end
-		local link = ("roblox://experiences/start?placeId=%d&gameInstanceId=%s"):format(game.PlaceId, game.JobId)
-		notify(copyText(link) and "คัดลอกลิงก์เซิร์ฟเวอร์แล้ว" or "ตัวรันนี้คัดลอกให้ไม่ได้")
-	end)
+	Button(
+		pServer,
+		"เข้าเซิร์ฟเวอร์เดิมใหม่ (Rejoin)",
+		rejoin
+	)
+
+	Button(
+		pServer,
+		"คัดลอกลิงก์เซิร์ฟเวอร์",
+		function()
+			if game.JobId == "" then
+				notify("ไม่พบ JobId ของเซิร์ฟเวอร์นี้")
+				return
+			end
+
+			local link = (
+				"roblox://experiences/start?placeId=%d&gameInstanceId=%s"
+			):format(game.PlaceId, game.JobId)
+
+			notify(
+				copyText(link)
+					and "คัดลอกลิงก์เซิร์ฟเวอร์แล้ว"
+					or "ตัวรันนี้คัดลอกให้ไม่ได้"
+			)
+		end
+	)
+
+	Button(
+		pServer,
+		"คัดลอกโค้ดเข้าเซิร์ฟเวอร์ (Lua)",
+		function()
+			if game.JobId == "" then
+				notify("ไม่พบ JobId ของเซิร์ฟเวอร์นี้")
+				return
+			end
+
+			local code = (
+				'game:GetService("TeleportService"):TeleportToPlaceInstance(%d, "%s", game.Players.LocalPlayer)'
+			):format(game.PlaceId, game.JobId)
+
+			notify(
+				copyText(code)
+					and "คัดลอกโค้ดเข้าเซิร์ฟเวอร์แล้ว"
+					or "ตัวรันนี้คัดลอกให้ไม่ได้"
+			)
+		end
+	)
 end
+
 Ext.server()
 
 Label(pServer, "รายชื่อผู้เล่นในเซิฟ")
+
 svList = new("ScrollingFrame", {
 	Size = UDim2.new(1, -6, 0, 130),
 	BackgroundColor3 = C.row,
@@ -2615,60 +3839,167 @@ svList = new("ScrollingFrame", {
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasSize = UDim2.new()
 }, pServer)
+
 corner(svList, 6)
-new("UIListLayout", {Padding = UDim.new(0, 4)}, svList)
-new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4)}, svList)
+
+new("UIListLayout", {
+	Padding = UDim.new(0, 4)
+}, svList)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4)
+}, svList)
 
 updateServerInfo()
 refreshServerList()
 
-local pMain = Page("หลัก")
-Label(pMain, "การเคลื่อนที่")
-Toggle(pMain, "วิ่งไว", setSpeed)
-Slider(pMain, "ความเร็ววิ่ง", 16, 200, S.speedVal, function(v) S.speedVal = v end)
-Toggle(pMain, "บิน (มีปุ่มขึ้น/ลง ด้านขวา)", setFly)
-Slider(pMain, "ความเร็วบิน", 10, 200, S.flyVal, function(v) S.flyVal = v end)
-Toggle(pMain, "กระโดดไม่จำกัด", function(v) S.ijump = v end)
-Toggle(pMain, "ทะลุกำแพง", setNoclip)
-Toggle(pMain, "ล่องหน", setInvisible)
-Label(pMain, "กล้อง")
-Toggle(pMain, "ซูมออกไม่จำกัด", setZoom)
-Label(pMain, "ถอดจิต")
-setSpiritToggle = Toggle(pMain, "ถอดจิต (เปิดแล้วมี UI แยก)", function(v)
-	if v then
-		if not startSpirit() then task.defer(function() setSpiritToggle(false) end) end
-	else
-		stopSpirit()
-	end
-end)
 
-local pVis = Page("มองเห็น")
-Label(pVis, "ระบบ ESP")
-Toggle(pVis, "มองเห็นผู้เล่น", function(v)
-	S.espP = v
-	if not v then
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Character then clearESP(p.Character) end
+local pMain = Page("หลัก")
+
+Label(pMain, "การเคลื่อนที่")
+
+Toggle(
+	pMain,
+	"วิ่งไว",
+	setSpeed
+)
+
+Slider(
+	pMain,
+	"ความเร็ววิ่ง",
+	16,
+	200,
+	S.speedVal,
+	function(v)
+		S.speedVal = v
+	end
+)
+
+Toggle(
+	pMain,
+	"บิน (มีปุ่มขึ้น/ลง ด้านขวา)",
+	setFly
+)
+
+Slider(
+	pMain,
+	"ความเร็วบิน",
+	10,
+	200,
+	S.flyVal,
+	function(v)
+		S.flyVal = v
+	end
+)
+
+Toggle(
+	pMain,
+	"กระโดดไม่จำกัด",
+	function(v)
+		S.ijump = v
+	end
+)
+
+Toggle(
+	pMain,
+	"ทะลุกำแพง",
+	setNoclip
+)
+
+Toggle(
+	pMain,
+	"ล่องหน",
+	setInvisible
+)
+
+Label(pMain, "กล้อง")
+
+Toggle(
+	pMain,
+	"ซูมออกไม่จำกัด",
+	setZoom
+)
+
+Label(pMain, "ถอดจิต")
+
+setSpiritToggle = Toggle(
+	pMain,
+	"ถอดจิต (เปิดแล้วมี UI แยก)",
+	function(v)
+		if v then
+			if not startSpirit() then
+				task.defer(function()
+					setSpiritToggle(false)
+				end)
+			end
+		else
+			stopSpirit()
 		end
 	end
-end)
-Toggle(pVis, "มองเห็น NPC", function(v)
-	S.espN = v
-	if not v then
-		for m in pairs(npcs) do clearESP(m) end
-	end
-end)
-Toggle(pVis, "ESP เส้น → หัวที่ล็อค", function(v)
-	S.espLine = v
-	if not v then hideAimLine() end
-end)
+)
 
+-- มองเห็น
+local pVis = Page("มองเห็น")
+
+Label(
+	pVis,
+	"ระบบ ESP"
+)
+
+Toggle(
+	pVis,
+	"มองเห็นผู้เล่น",
+	function(v)
+		S.espP = v
+
+		if not v then
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p.Character then
+					clearESP(p.Character)
+				end
+			end
+		end
+	end
+)
+
+Toggle(
+	pVis,
+	"มองเห็น NPC",
+	function(v)
+		S.espN = v
+
+		if not v then
+			for m in pairs(npcs) do
+				clearESP(m)
+			end
+		end
+	end
+)
+
+Toggle(
+	pVis,
+	"ESP เส้น → หัวที่ล็อค",
+	function(v)
+		S.espLine = v
+		if not v then
+			hideAimLine()
+		end
+	end
+)
+
+-- ตรวจจับโปร
 local pPro = Page("ตรวจจับโปร")
-Label(pPro, "ระบบตรวจจับโปร")
+
+Label(
+	pPro,
+	"ระบบตรวจจับโปร"
+)
+
 new("TextLabel", {
 	Size = UDim2.new(1, -6, 0, 44),
 	BackgroundTransparency = 1,
-	Text = "ตรวจคนที่บินนานผิดปกติหรือวิ่งเร็วเกินค่าที่เกมกำหนด",
+	Text = "ตรวจคนที่บินนานผิดปกติหรือวิ่งเร็วเกินค่าที่เกมกำหนด (ไม่นับรถ วาร์ป ระบบบิน/บูสต์ของเกม)",
 	TextColor3 = Color3.fromRGB(145, 160, 200),
 	Font = Enum.Font.GothamMedium,
 	TextSize = 11,
@@ -2677,12 +4008,66 @@ new("TextLabel", {
 	TextYAlignment = Enum.TextYAlignment.Top
 }, pPro)
 
-Toggle(pPro, "เปิดตรวจจับโปร", function(v) S.proDetect = v; if not v then proResetAll() end end)
-Toggle(pPro, "ESP โปร (แดง + ขึ้นว่าโปร)", function(v) S.proEsp = v end, true)
-Toggle(pPro, "แจ้งเตือนเมื่อเจอโปร", function(v) S.proNotify = v end, true)
-Toggle(pPro, "จำคนโปรไว้ตลอด", function(v) S.proSticky = v end, true)
-Slider(pPro, "ค่าเผื่อความเร็ววิ่ง (% ของ WalkSpeed)", 150, 500, S.proSpeedMul, function(v) S.proSpeedMul = v end)
-Slider(pPro, "ลอยนานเกิน (วินาที) ถึงนับว่าบิน", 2, 10, S.proFlyTime, function(v) S.proFlyTime = v end)
+Toggle(
+	pPro,
+	"เปิดตรวจจับโปร",
+	function(v)
+		S.proDetect = v
+
+		if not v then
+			proResetAll()
+		end
+	end
+)
+
+Toggle(
+	pPro,
+	"ESP โปร (แดง + ขึ้นว่าโปร)",
+	function(v)
+		S.proEsp = v
+	end,
+	true
+)
+
+Toggle(
+	pPro,
+	"แจ้งเตือนเมื่อเจอโปร",
+	function(v)
+		S.proNotify = v
+	end,
+	true
+)
+
+Toggle(
+	pPro,
+	"จำคนโปรไว้ตลอด",
+	function(v)
+		S.proSticky = v
+	end,
+	true
+)
+
+Slider(
+	pPro,
+	"ค่าเผื่อความเร็ววิ่ง (% ของ WalkSpeed)",
+	150,
+	500,
+	S.proSpeedMul,
+	function(v)
+		S.proSpeedMul = v
+	end
+)
+
+Slider(
+	pPro,
+	"ลอยนานเกิน (วินาที) ถึงนับว่าบิน",
+	2,
+	10,
+	S.proFlyTime,
+	function(v)
+		S.proFlyTime = v
+	end
+)
 
 proCountLabel = new("TextLabel", {
 	Size = UDim2.new(1, -6, 0, 20),
@@ -2702,38 +4087,155 @@ proListFrame = new("ScrollingFrame", {
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasSize = UDim2.new()
 }, pPro)
-corner(proListFrame, 6)
-new("UIListLayout", {Padding = UDim.new(0, 4)}, proListFrame)
-new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4)}, proListFrame)
 
-Button(pPro, "ล้างรายชื่อโปร", function()
-	for p in pairs(proFlagged) do
-		proFlagged[p] = nil
-		if p.Character then proClearESP(p.Character) end
+corner(proListFrame, 6)
+
+new("UIListLayout", {
+	Padding = UDim.new(0, 4)
+}, proListFrame)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4)
+}, proListFrame)
+
+Button(
+	pPro,
+	"ล้างรายชื่อโปร",
+	function()
+		for p in pairs(proFlagged) do
+			proFlagged[p] = nil
+
+			if p.Character then
+				proClearESP(p.Character)
+			end
+		end
+
+		for _, st in pairs(proTrack) do
+			st.speedStreak = 0
+			st.flyStreak = 0
+		end
+
+		proRefreshUI()
 	end
-	for _, st in pairs(proTrack) do st.speedStreak = 0; st.flyStreak = 0 end
-	proRefreshUI()
-end)
+)
+
 proRefreshUI()
 
+-- Aim
 local pAim = Page("ล็อคเป้า")
-Label(pAim, "ระบบ Aimlock")
-Toggle(pAim, "ล็อคหัวผู้เล่น", function(v) S.lockP = v; updateFovVisible() end)
-Toggle(pAim, "ล็อคหัว NPC / บอท", function(v) S.lockN = v; updateFovVisible() end)
-Toggle(pAim, "ไม่ล็อคทีมเดียวกัน", function(v) S.teamCheck = v end, true)
-Slider(pAim, "ขนาด FOV", 30, 400, S.fov, function(v)
-	S.fov = v
-	fovCircle.Size = UDim2.fromOffset(v * 2, v * 2)
-end)
-Label(pAim, "ระบบ Hitbox")
-Toggle(pAim, "ขยายฮิตบ็อกซ์ NPC", function(v) S.hitbox = v end)
-Slider(pAim, "ขนาดฮิตบ็อกซ์ NPC", 2, 30, S.hitSize, function(v) S.hitSize = v end)
-Toggle(pAim, "ขยายฮิตบ็อกซ์ผู้เล่น", function(v) S.hitboxP = v end)
-Slider(pAim, "ขนาดฮิตบ็อกซ์ผู้เล่น", 2, 40, S.hitSizeP, function(v) S.hitSizeP = v end)
-Toggle(pAim, "ฮิตบ็อกซ์: ข้ามทีมเดียวกัน", function(v) S.hitTeam = v end, true)
 
+Label(
+	pAim,
+	"ระบบ Aimlock"
+)
+
+Toggle(
+	pAim,
+	"ล็อคหัวผู้เล่น",
+	function(v)
+		S.lockP = v
+		updateFovVisible()
+	end
+)
+
+Toggle(
+	pAim,
+	"ล็อคหัว NPC / บอท",
+	function(v)
+		S.lockN = v
+	updateFovVisible()
+	end
+)
+
+Toggle(
+	pAim,
+	"ไม่ล็อคทีมเดียวกัน",
+	function(v)
+		S.teamCheck = v
+	end,
+	true
+)
+
+Slider(
+	pAim,
+	"ขนาด FOV",
+	30,
+	400,
+	S.fov,
+	function(v)
+
+		S.fov = v
+
+		fovCircle.Size =
+			UDim2.fromOffset(
+				v * 2,
+				v * 2
+			)
+	end
+)
+
+Label(
+	pAim,
+	"ระบบ Hitbox"
+)
+
+Toggle(
+	pAim,
+	"ขยายฮิตบ็อกซ์ NPC",
+	function(v)
+		S.hitbox = v
+	end
+)
+
+Slider(
+	pAim,
+	"ขนาดฮิตบ็อกซ์ NPC",
+	2,
+	30,
+	S.hitSize,
+	function(v)
+		S.hitSize = v
+	end
+)
+
+Toggle(
+	pAim,
+	"ขยายฮิตบ็อกซ์ผู้เล่น",
+	function(v)
+		S.hitboxP = v
+	end
+)
+
+Slider(
+	pAim,
+	"ขนาดฮิตบ็อกซ์ผู้เล่น",
+	2,
+	40,
+	S.hitSizeP,
+	function(v)
+		S.hitSizeP = v
+	end
+)
+
+Toggle(
+	pAim,
+	"ฮิตบ็อกซ์: ข้ามทีมเดียวกัน",
+	function(v)
+		S.hitTeam = v
+	end,
+	true
+)
+
+
+-- Warp
 local pTp = Page("วาร์ป")
-Label(pTp, "เลือกผู้เล่นเพื่อวาร์ป")
+
+Label(
+	pTp,
+	"เลือกผู้เล่นเพื่อวาร์ป"
+)
+
 listFrame = new("ScrollingFrame", {
 	Size = UDim2.new(1, -6, 0, 100),
 	BackgroundColor3 = C.row,
@@ -2742,30 +4244,205 @@ listFrame = new("ScrollingFrame", {
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasSize = UDim2.new()
 }, pTp)
-corner(listFrame, 6)
-new("UIListLayout", {Padding = UDim.new(0, 4)}, listFrame)
-new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4)}, listFrame)
 
-Button(pTp, "รีเฟรชรายชื่อ", refreshPlayerList)
-Button(pTp, "วาร์ปไปหาผู้เล่นที่เลือก", warpToSelected)
-Button(pTp, "ชนคนจนกระเด็น (แล้วกลับจุดเดิม)", flingSelected)
-Toggle(pTp, "กดหน้าจอเพื่อวาร์ป", setClickTeleport)
+corner(listFrame, 6)
+
+new("UIListLayout", {
+	Padding = UDim.new(0, 4)
+}, listFrame)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4)
+}, listFrame)
+
+Button(
+	pTp,
+	"รีเฟรชรายชื่อ",
+	refreshPlayerList
+)
+
+Button(
+	pTp,
+	"วาร์ปไปหาผู้เล่นที่เลือก",
+	warpToSelected
+)
+
+Button(
+	pTp,
+	"ชนคนจนกระเด็น (แล้วกลับจุดเดิม)",
+	flingSelected
+)
+
+Toggle(
+	pTp,
+	"กดหน้าจอเพื่อวาร์ป",
+	setClickTeleport
+)
+
 refreshPlayerList()
 
+-- เครื่องมือ
 local pTool = Page("เครื่องมือ")
-Label(pTool, "ระบบเพิ่มเติม")
-Toggle(pTool, "หยิบของด้วยการกดครั้งเดียว", setPickupOnce)
-Toggle(pTool, "เพิ่มแสงสว่าง", function(v) S.light = v end)
-Slider(pTool, "ระดับแสง", 1, 10, S.lightVal, function(v) S.lightVal = v end)
-Toggle(pTool, "เร่งความเร็วรถ", function(v) S.car = v end)
-Slider(pTool, "แรงเร่งรถ", 10, 400, S.carVal, function(v) S.carVal = v end)
-Toggle(pTool, "ลดอาการแลค (Anti-Lag)", setAntiLag)
 
+Label(
+	pTool,
+	"ระบบเพิ่มเติม"
+)
+
+Toggle(
+	pTool,
+	"หยิบของด้วยการกดครั้งเดียว",
+	setPickupOnce
+)
+
+Toggle(
+	pTool,
+	"เพิ่มแสงสว่าง",
+	function(v)
+		S.light = v
+	end
+)
+
+Slider(
+	pTool,
+	"ระดับแสง",
+	1,
+	10,
+	S.lightVal,
+	function(v)
+		S.lightVal = v
+	end
+)
+
+Toggle(
+	pTool,
+	"เร่งความเร็วรถ",
+	function(v)
+		S.car = v
+	end
+)
+
+Slider(
+	pTool,
+	"แรงเร่งรถ",
+	10,
+	400,
+	S.carVal,
+	function(v)
+		S.carVal = v
+	end
+)
+
+Toggle(
+	pTool,
+	"ลดอาการแลค (Anti-Lag)",
+	setAntiLag
+)
+
+-- V4.8: ระบบป้องกัน • Defense
+-- Anti-Fling เป็นการแก้แรงสะบัดฝั่งเครื่องเท่านั้น; เกมที่ใช้ server-authoritative physics อาจเขียนทับได้
+local antiFlingConn
+local antiFlingLastSafe
+local antiFlingLastRoot
+local antiFlingLastPos
+local antiFlingCooldown = 0
+
+local function setAntiFling(v)
+	S.antiFling = v
+	if antiFlingConn then
+		antiFlingConn:Disconnect()
+		antiFlingConn = nil
+	end
+	antiFlingLastSafe, antiFlingLastRoot, antiFlingLastPos = nil, nil, nil
+	antiFlingCooldown = 0
+	if not v then return end
+
+	antiFlingConn = RunService.Heartbeat:Connect(function()
+		local char, hum, root = getChar()
+		if not (char and hum and root and hum.Health > 0) then
+			antiFlingLastSafe, antiFlingLastRoot, antiFlingLastPos = nil, nil, nil
+			return
+		end
+
+		local now = os.clock()
+		local linear = root.AssemblyLinearVelocity
+		local angular = root.AssemblyAngularVelocity
+		local speed = linear.Magnitude
+		local spin = angular.Magnitude
+
+		-- เก็บจุดปลอดภัยเมื่อเคลื่อนที่ตามปกติ ไม่เก็บระหว่างตก/กระโดดด้วยความเร็วสูง
+		if speed < 65 and spin < 35 and hum.FloorMaterial ~= Enum.Material.Air then
+			antiFlingLastSafe = root.CFrame
+			antiFlingLastRoot = root
+			antiFlingLastPos = root.Position
+		end
+
+		local suddenJump = antiFlingLastRoot == root
+			and antiFlingLastPos ~= nil
+			and (root.Position - antiFlingLastPos).Magnitude > 45
+		local abnormalMotion = speed > 180 or spin > 120 or suddenJump
+
+		if abnormalMotion and now >= antiFlingCooldown then
+			antiFlingCooldown = now + 0.15
+			pcall(function()
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+				-- ย้อนกลับเฉพาะเมื่อมีการย้ายตำแหน่งฉับพลันมากผิดปกติ
+				if suddenJump and antiFlingLastSafe then
+					root.CFrame = antiFlingLastSafe
+				end
+			end)
+		else
+			antiFlingLastRoot = root
+			antiFlingLastPos = root.Position
+		end
+	end)
+end
+
+table.insert(Ext.cleanups, function()
+	setAntiFling(false)
+end)
+
+Label(pTool, "🛡️ การป้องกัน (Defense)")
+Toggle(pTool, "ลดแรงกระเด็น / Anti-Fling", setAntiFling)
+Toggle(pTool, "แจ้งเตือนเมื่อเลือดลด (ไม่ใช่อมตะ)", function(v)
+	if not Ext.healthWatchConn and v then
+		local _, hum = getChar()
+		local lastHealth = hum and hum.Health
+		Ext.healthWatchEnabled = true
+		Ext.healthWatchConn = RunService.Heartbeat:Connect(function()
+			if not Ext.healthWatchEnabled then return end
+			local _, currentHum = getChar()
+			if not currentHum then lastHealth = nil return end
+			if lastHealth and currentHum.Health < lastHealth then
+				notify("ตรวจพบว่าเลือดลดลง: " .. math.floor(currentHum.Health) .. "/" .. math.floor(currentHum.MaxHealth) .. " (ฝั่งเครื่องไม่สามารถบล็อกดาเมจเซิร์ฟเวอร์ได้)")
+			end
+			lastHealth = currentHum.Health
+		end)
+	elseif not v then
+		Ext.healthWatchEnabled = false
+		if Ext.healthWatchConn then
+			Ext.healthWatchConn:Disconnect()
+			Ext.healthWatchConn = nil
+		end
+	end
+end)
+
+-- หมายเหตุ: ไม่แสดงปุ่มอมตะปลอม เพราะ Humanoid.Health/ForceField ที่สร้างฝั่ง client
+-- ไม่สามารถป้องกันดาเมจที่เซิร์ฟเวอร์เป็นผู้ตัดสินได้อย่างเชื่อถือได้
+
+-- V4.7: กันหลุดเพราะ AFK (Anti-AFK)
 function Ext.antiAFK()
 	local VirtualUser = game:GetService("VirtualUser")
 	local afkConn
+
 	local function setAntiAFK(v)
-		if afkConn then afkConn:Disconnect(); afkConn = nil end
+		if afkConn then
+			afkConn:Disconnect()
+			afkConn = nil
+		end
+
 		if v then
 			afkConn = LP.Idled:Connect(function()
 				pcall(function()
@@ -2775,12 +4452,25 @@ function Ext.antiAFK()
 			end)
 		end
 	end
-	table.insert(Ext.cleanups, function() setAntiAFK(false) end)
-	Toggle(pTool, "กันหลุดเมื่อ AFK (Anti-AFK)", setAntiAFK)
+
+	table.insert(Ext.cleanups, function()
+		setAntiAFK(false)
+	end)
+
+	Toggle(
+		pTool,
+		"กันหลุดเมื่อ AFK (Anti-AFK)",
+		setAntiAFK
+	)
 end
+
 Ext.antiAFK()
 
+
+
+-- ===== แท็บ: สคริป (ตัวรันสคริป) =====
 local pScript = Page("สคริป")
+
 local SC_INFO = Color3.fromRGB(145, 160, 200)
 local SC_OK = Color3.fromRGB(80, 220, 120)
 local SC_ERR = Color3.fromRGB(255, 90, 100)
@@ -2790,7 +4480,9 @@ local scCard = new("Frame", {
 	Size = UDim2.new(1, -6, 0, 248),
 	BackgroundColor3 = C.row
 }, pScript)
+
 corner(scCard, 10)
+
 new("TextLabel", {
 	Size = UDim2.new(1, -20, 0, 18),
 	Position = UDim2.fromOffset(10, 6),
@@ -2811,6 +4503,7 @@ local scScroll = new("ScrollingFrame", {
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasSize = UDim2.new()
 }, scCard)
+
 corner(scScroll, 8)
 stroke(scScroll, C.off, 1)
 
@@ -2830,7 +4523,13 @@ local scInput = new("TextBox", {
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top
 }, scScroll)
-new("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 6)}, scInput)
+
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 6),
+	PaddingLeft = UDim.new(0, 8),
+	PaddingRight = UDim.new(0, 8),
+	PaddingBottom = UDim.new(0, 6)
+}, scInput)
 
 local scRun = new("TextButton", {
 	Size = UDim2.new(0.6, -14, 0, 30),
@@ -2841,6 +4540,7 @@ local scRun = new("TextButton", {
 	Font = FONT,
 	TextSize = 14
 }, scCard)
+
 corner(scRun, 6)
 
 local scClear = new("TextButton", {
@@ -2852,6 +4552,7 @@ local scClear = new("TextButton", {
 	Font = FONT,
 	TextSize = 14
 }, scCard)
+
 corner(scClear, 6)
 
 local scStatus = new("TextLabel", {
@@ -2869,44 +4570,78 @@ local scStatus = new("TextLabel", {
 
 local function setScStatus(text, color)
 	text = tostring(text)
-	if #text > 200 then text = text:sub(1, 200) .. "..." end
+
+	if #text > 200 then
+		text = text:sub(1, 200) .. "..."
+	end
+
 	scStatus.Text = text
 	scStatus.TextColor3 = color or SC_INFO
 end
 
-scRun.MouseButton1Click:Connect(function()
+local function runUserScript()
 	local src = scInput.Text
-	if not src or src:match("^%s*$") then setScStatus("ยังไม่ได้ใส่สคริป", SC_WARN); return end
+
+	if not src or src:match("^%s*$") then
+		setScStatus("ยังไม่ได้ใส่สคริป", SC_WARN)
+		return
+	end
+
 	local ls = loadstring or (env and env.loadstring)
-	if not ls then setScStatus("ตัวรันนี้ไม่รองรับ loadstring", SC_ERR); return end
+
+	if not ls then
+		setScStatus("ตัวรันนี้ไม่รองรับ loadstring", SC_ERR)
+		notify("ไม่รองรับ loadstring")
+		return
+	end
+
 	local fn, compileErr = ls(src)
-	if not fn then setScStatus("โค้ดผิดรูปแบบ: " .. tostring(compileErr), SC_ERR); return end
+
+	if not fn then
+		setScStatus("โค้ดผิดรูปแบบ: " .. tostring(compileErr), SC_ERR)
+		notify("สคริปมีข้อผิดพลาด")
+		return
+	end
+
 	setScStatus("กำลังรัน...", SC_INFO)
+
 	task.spawn(function()
 		local ok, err = pcall(fn)
-		if ok then setScStatus("รันสำเร็จ", SC_OK); notify("รันสคริปสำเร็จ")
-		else setScStatus("รันแล้วเกิดข้อผิดพลาด: " .. tostring(err), SC_ERR) end
+
+		if ok then
+			setScStatus("รันสำเร็จ", SC_OK)
+			notify("รันสคริปสำเร็จ")
+		else
+			setScStatus("รันแล้วเกิดข้อผิดพลาด: " .. tostring(err), SC_ERR)
+			notify("สคริปมีข้อผิดพลาด")
+		end
 	end)
-end)
+end
+
+scRun.MouseButton1Click:Connect(runUserScript)
 
 scClear.MouseButton1Click:Connect(function()
 	scInput.Text = ""
 	setScStatus("ล้างแล้ว", SC_INFO)
 end)
 
--- V4.8: อัปเกรดตัวแกะสคริปต์ (Script Viewer & De-obfuscator Engine)
+
+
+-- V4.8: ตัวแกะสคริป (รองรับ string literal/base64/URL; obfuscation ซับซ้อนแกะไม่ได้ทุกแบบ)
+-- DECODE ไม่รันโค้ดใด ๆ มีเพียงปุ่ม RUN (กดยืนยัน 2 ครั้ง) ที่รัน
 function Ext.viewer()
 	local vCard = new("Frame", {
-		Size = UDim2.new(1, -6, 0, 350),
+		Size = UDim2.new(1, -6, 0, 340),
 		BackgroundColor3 = C.row
 	}, pScript)
+
 	corner(vCard, 10)
 
 	new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 18),
 		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
-		Text = "ตัวแกะสคริปต์ & De-Obfuscator V4.8",
+		Text = "ตัวแกะสคริป V4.8 • DECODE / Base64 / string.char / URL",
 		TextColor3 = C.accent,
 		Font = FONT,
 		TextSize = 13,
@@ -2923,6 +4658,7 @@ function Ext.viewer()
 			AutomaticCanvasSize = Enum.AutomaticSize.Y,
 			CanvasSize = UDim2.new()
 		}, vCard)
+
 		corner(sc, 8)
 		stroke(sc, C.off, 1)
 
@@ -2942,32 +4678,48 @@ function Ext.viewer()
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Top
 		}, sc)
-		new("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 6)}, tb)
+
+		new("UIPadding", {
+			PaddingTop = UDim.new(0, 6),
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+			PaddingBottom = UDim.new(0, 6)
+		}, tb)
+
 		return tb
 	end
 
-	local vInput = makeBox(28, 85, "วางสคริปต์ Obfuscated, IronBrew, Luraph, Moonsec หรือ URL ที่นี่", C.text)
+	local vInput = makeBox(
+		28, 92,
+		"วาง Source, loadstring(...), Base64, string.char หรือ URL (VM/obfuscation ซับซ้อนอาจแกะไม่ได้)",
+		C.text
+	)
+
 	new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 16),
-		Position = UDim2.fromOffset(10, 117),
+		Position = UDim2.fromOffset(10, 124),
 		BackgroundTransparency = 1,
-		Text = "ผลลัพธ์หลังการถอดรหัส / De-obfuscate (ยังไม่รัน)",
+		Text = "Source ที่ตรวจ/ถอดได้ (RUN จะรันข้อความในช่องนี้)",
 		TextColor3 = SC_INFO,
 		Font = Enum.Font.GothamMedium,
 		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left
 	}, vCard)
 
-	local vOutput = makeBox(135, 85, "Source ที่ผ่านการถอดรหัสจะแสดงที่นี่", Color3.fromRGB(140, 235, 180))
+	local vOutput = makeBox(
+		142, 92,
+		"Source ที่แกะแล้วจะแสดงตรงนี้",
+		Color3.fromRGB(140, 235, 180)
+	)
 
 	local vStatus = new("TextLabel", {
-		Size = UDim2.new(1, -20, 0, 62),
-		Position = UDim2.fromOffset(10, 276),
+		Size = UDim2.new(1, -20, 0, 56),
+		Position = UDim2.fromOffset(10, 278),
 		BackgroundTransparency = 1,
-		Text = "พร้อมใช้งาน • รองรับ IronBrew, Luraph, Moonsec, Prometheus, Byte Tables",
+		Text = "พร้อมใช้งาน • ยังไม่มีการวิเคราะห์",
 		TextColor3 = SC_WARN,
 		Font = Enum.Font.GothamMedium,
-		TextSize = 11,
+		TextSize = 12,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top
@@ -2975,7 +4727,11 @@ function Ext.viewer()
 
 	local function setVStatus(text, color)
 		text = tostring(text)
-		if #text > 240 then text = text:sub(1, 240) .. "..." end
+
+		if #text > 220 then
+			text = text:sub(1, 220) .. "..."
+		end
+
 		vStatus.Text = text
 		vStatus.TextColor3 = color or SC_WARN
 	end
@@ -2983,13 +4739,14 @@ function Ext.viewer()
 	local function vButton(label, i, color)
 		local b = new("TextButton", {
 			Size = UDim2.new(0.25, -10, 0, 30),
-			Position = UDim2.new(0.25 * i, 8 - 2 * i, 0, 236),
+			Position = UDim2.new(0.25 * i, 8 - 2 * i, 0, 242),
 			BackgroundColor3 = color,
 			Text = label,
 			TextColor3 = Color3.new(1, 1, 1),
 			Font = FONT,
 			TextSize = 12
 		}, vCard)
+
 		corner(b, 6)
 		return b
 	end
@@ -2999,156 +4756,174 @@ function Ext.viewer()
 	local copyBtn = vButton("COPY", 2, Color3.fromRGB(35, 145, 100))
 	local clearBtn = vButton("CLEAR", 3, C.off)
 
-	local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+	------------------------------------------------------------
+	-- Helpers
+	------------------------------------------------------------
+	local function trim(s)
+		return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+	end
 
+	-- escape ที่รองรับใน string literal
 	local escapeMap = {
-		n = "
-", r = "", t = "	",
-		a = "", b = "", f = "", v = "",
-		["\"] = "\", ['"'] = '"', ["'"] = "'", ["
-"] = "
-"
+		n = "\n", r = "\r", t = "\t",
+		a = "\a", b = "\b", f = "\f", v = "\v",
+		["\\"] = "\\", ['"'] = '"', ["'"] = "'", ["\n"] = "\n"
 	}
 
+	-- ดึงข้อความจาก loadstring("...") หรือ loadstring('...')
+	-- รองรับเฉพาะ string literal แบบง่าย
 	local function extractLoadstring(s)
 		local startPos = s:find("loadstring%s*%(")
-		if not startPos then return nil, "ไม่พบ loadstring" end
+
+		if not startPos then
+			return nil, "ไม่พบ loadstring"
+		end
+
 		local openPos = s:find("(", startPos, true)
-		if not openPos then return nil, "รูปแบบวงเล็บไม่ถูกต้อง" end
+
+		if not openPos then
+			return nil, "รูปแบบวงเล็บไม่ถูกต้อง"
+		end
+
 		local i = openPos + 1
-		while i <= #s and s:sub(i, i):match("%s") do i = i + 1 end
+
+		while i <= #s and s:sub(i, i):match("%s") do
+			i = i + 1
+		end
+
 		local quote = s:sub(i, i)
-		if quote ~= '"' and quote ~= "'" then return nil, "อาร์กิวเมนต์ไม่ใช่ string literal" end
+
+		if quote ~= '"' and quote ~= "'" then
+			return nil, "อาร์กิวเมนต์ของ loadstring ไม่ใช่ข้อความที่อ่านได้โดยตรง"
+		end
+
 		i = i + 1
+
 		local out = {}
+
 		while i <= #s do
 			local c = s:sub(i, i)
-			if c == "\" then
+
+			if c == "\\" then
 				local n = s:sub(i + 1, i + 1)
-				if n == "" then return nil, "escape ไม่สมบูรณ์" end
+
+				if n == "" then
+					return nil, "ข้อความจบด้วย escape ที่ไม่สมบูรณ์"
+				end
+
 				if n:match("%d") then
 					local digits = s:match("^%d%d?%d?", i + 1)
-					table.insert(out, string.char(tonumber(digits)))
+					local code = tonumber(digits)
+
+					if code > 255 then
+						return nil, "escape ตัวเลขเกิน 255"
+					end
+
+					table.insert(out, string.char(code))
 					i = i + 1 + #digits
 				elseif n == "x" then
 					local hex = s:match("^%x%x", i + 2)
-					if not hex then return nil, "escape \x ไม่ถูกต้อง" end
+
+					if not hex then
+						return nil, "escape \\x ไม่ถูกต้อง"
+					end
+
 					table.insert(out, string.char(tonumber(hex, 16)))
 					i = i + 4
 				else
 					table.insert(out, escapeMap[n] or n)
 					i = i + 2
 				end
+
 			elseif c == quote then
-				return table.concat(out), "แกะ string literal สำเร็จ"
+				return table.concat(out), "แกะ string literal ของ loadstring สำเร็จ (ยังไม่รัน)"
+
 			else
 				table.insert(out, c)
 				i = i + 1
 			end
 		end
+
 		return nil, "ไม่พบเครื่องหมายปิดข้อความ"
 	end
 
+	-- base64 (Lua ล้วน)
 	local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 	local B64_LOOKUP = {}
-	for i = 1, #B64 do B64_LOOKUP[B64:sub(i, i)] = i - 1 end
+
+	for i = 1, #B64 do
+		B64_LOOKUP[B64:sub(i, i)] = i - 1
+	end
 
 	local function b64decode(data)
-		data = data:gsub("%s", ""):gsub("=+$", "")
+		data = data:gsub("%s", "")
+		data = data:gsub("=+$", "")
+
 		local out, buffer, bits = {}, 0, 0
+
 		for i = 1, #data do
 			local v = B64_LOOKUP[data:sub(i, i)]
-			if not v then return nil end
+
+			if not v then
+				return nil
+			end
+
 			buffer = buffer * 64 + v
 			bits = bits + 6
+
 			if bits >= 8 then
 				bits = bits - 8
+
 				local byte = math.floor(buffer / 2 ^ bits)
+
 				buffer = buffer % 2 ^ bits
 				table.insert(out, string.char(byte))
 			end
 		end
+
 		return table.concat(out)
 	end
 
 	local function looksLikeBase64(s)
 		local t = s:gsub("%s", "")
-		if #t < 8 or #t % 4 ~= 0 then return false end
+
+		if #t < 8 or #t % 4 ~= 0 then
+			return false
+		end
+
 		return t:match("^[A-Za-z0-9+/]+=?=?$") ~= nil
 	end
 
 	local function isMostlyText(s)
-		if #s == 0 then return false end
+		if #s == 0 then
+			return false
+		end
+
 		local bad = 0
+
 		for i = 1, #s do
 			local b = s:byte(i)
-			if b < 9 or (b > 13 and b < 32) then bad = bad + 1 end
+
+			if b < 9 or (b > 13 and b < 32) then
+				bad = bad + 1
+			end
 		end
+
 		return bad / #s < 0.05
 	end
 
-	local function deobfuscateLua(source)
-		local detected = {}
-		local cleaned = source
-
-		if source:find("IronBrew") or source:find("IB_") or source:find("IBSV") then
-			table.insert(detected, "IronBrew")
-		end
-		if source:find("Luraph") or source:find("LRP") then
-			table.insert(detected, "Luraph")
-		end
-		if source:find("Moonsec") or source:find("MoonSec") then
-			table.insert(detected, "Moonsec")
-		end
-		if source:find("Prometheus") or source:find("PROM_") then
-			table.insert(detected, "Prometheus")
-		end
-		if source:find("PSDA") then
-			table.insert(detected, "PSDA")
+	-- หา URL จาก game:HttpGet("...") หรือ URL เดี่ยว ๆ
+	local function extractUrl(s)
+		if s:find("HttpGet", 1, true) or s:match("^https?://%S+$") then
+			return s:match("https?://[^\"'%s%)]+")
 		end
 
-		local byteTableFound = 0
-		cleaned = cleaned:gsub("{%s*(%d+)%s*,%s*(%d+)%s*,%s*(%d+)%s*,.-%s*}", function(matchStr)
-			local numbers = {}
-			for num in matchStr:gmatch("%d+") do
-				local n = tonumber(num)
-				if n and n >= 0 and n <= 255 then
-					table.insert(numbers, string.char(n))
-				end
-			end
-			if #numbers > 10 then
-				byteTableFound = byteTableFound + 1
-				return '"' .. table.concat(numbers):gsub('"', '\"') .. '"'
-			end
-			return nil
-		end)
-
-		cleaned = cleaned:gsub("string%.char%s*%(%s*([%d,%s]+)%s*%-%s*%d+%s*%)", function(nums)
-			local chars = {}
-			for n in nums:gmatch("%d+") do
-				local val = tonumber(n)
-				if val then table.insert(chars, string.char(val)) end
-			end
-			return '"' .. table.concat(chars) .. '"'
-		end)
-
-		cleaned = cleaned:gsub("string%.char%s*%(%s*([%d,%s]+)%s*%)", function(nums)
-			local chars = {}
-			for n in nums:gmatch("%d+") do
-				local val = tonumber(n)
-				if val then table.insert(chars, string.char(val)) end
-			end
-			return '"' .. table.concat(chars) .. '"'
-		end)
-
-		cleaned = cleaned:gsub("local%s+[_%a][_%w]*%s*=%s*nil;", "")
-		cleaned = cleaned:gsub("while%s+true%s+do%s+end", "")
-
-		local sigText = #detected > 0 and table.concat(detected, ", ") or "Standard / Custom Obfuscation"
-		local summary = ("ตรวจพบรูปแบบ: [%s] | ถอด Byte Tables: %d จุด"):format(sigText, byteTableFound)
-		return cleaned, summary
+		return nil
 	end
 
+	------------------------------------------------------------
+	-- Actions
+	------------------------------------------------------------
 	local armedText = nil
 	local armToken = 0
 	local busy = false
@@ -3159,86 +4934,167 @@ function Ext.viewer()
 		runBtn.Text = "RUN"
 	end
 
+
+	-- ถอด string.char(ตัวเลข...) แบบ static โดยไม่ execute โค้ดที่นำเข้า
+	local function decodeStringCharCalls(s)
+		local changed = false
+		local out = s:gsub("string%s*%.%s*char%s*%(([%d%s,]+)%)", function(args)
+			local bytes = {}
+			for token in args:gmatch("%d+") do
+				local n = tonumber(token)
+				if not n or n < 0 or n > 255 then
+					return "string.char(" .. args .. ")"
+				end
+				table.insert(bytes, string.char(n))
+			end
+			if #bytes == 0 then return "string.char(" .. args .. ")" end
+			changed = true
+			return string.format("%q", table.concat(bytes))
+		end)
+		return out, changed
+	end
+
+	local function decodeRepeatedBase64(source, maxLayers)
+		local current = source
+		local layers = 0
+		for _ = 1, maxLayers do
+			if not looksLikeBase64(current) then break end
+			local decoded = b64decode(current)
+			if not decoded or not isMostlyText(decoded) or decoded == current then break end
+			current = decoded
+			layers += 1
+		end
+		return current, layers
+	end
+
 	local function analyze()
 		if busy then return end
+
 		disarm()
+
 		local source = trim(vInput.Text)
+
 		if source == "" then
-			setVStatus("ERROR | กรุณาวางสคริปต์ที่ต้องการแกะก่อน", SC_ERR)
+			setVStatus("ERROR | กรุณาวางโค้ดก่อน", SC_ERR)
 			return
 		end
 
-		local url = source:find("HttpGet", 1, true) or source:match("^https?://%S+$")
-		if url then
-			local targetUrl = source:match("https?://[^"'%s%)]+")
-			if targetUrl then
-				busy = true
-				setVStatus("กำลังดึงข้อมูลจาก URL...", SC_WARN)
-				local body = httpGet(targetUrl)
-				busy = false
-				if body then
-					source = body
-				else
-					setVStatus("FETCH FAILED | ดึงข้อมูลจาก URL ไม่สำเร็จ", SC_ERR)
-					return
-				end
-			end
-		end
+		-- 1) loadstring("...") แบบ string literal
+		local extracted, message = extractLoadstring(source)
 
-		if looksLikeBase64(source) then
-			local decoded = b64decode(source)
-			if decoded and isMostlyText(decoded) then
-				source = decoded
-			end
-		end
-
-		local extracted = extractLoadstring(source)
 		if extracted then
-			source = extracted
+			vOutput.Text = extracted
+			setVStatus("SUCCESS | " .. message, SC_OK)
+			return
 		end
 
-		local result, summary = deobfuscateLua(source)
-		vOutput.Text = result
-		setVStatus("DE-OBFUSCATED SUCCESS | " .. summary, SC_OK)
+		-- 2) ถอด string.char(ตัวเลข...) ที่พบได้บ่อยใน obfuscator แบบง่าย
+		local charDecoded, charChanged = decodeStringCharCalls(source)
+		if charChanged and charDecoded ~= source then
+			vOutput.Text = charDecoded
+			setVStatus("PARTIAL DEOBFUSCATION | ถอด string.char แบบตัวเลขแล้ว; ตรวจส่วนที่เหลือด้วยตนเอง", SC_OK)
+			return
+		end
+
+		-- 3) URL (เช่น loadstring(game:HttpGet("..."))())
+		local url = extractUrl(source)
+
+		if url then
+			busy = true
+			setVStatus("กำลังดึงข้อความจาก URL...", SC_WARN)
+
+			local body = httpGet(url)
+
+			busy = false
+
+			if body then
+				vOutput.Text = body
+				setVStatus(
+					"FETCHED | ดึงจาก " .. url .. " แล้ว (ยังไม่รัน) ตรวจโค้ดก่อนกด RUN",
+					SC_OK
+				)
+			else
+				vOutput.Text = source
+				setVStatus("FETCH FAILED | ดึงข้อความจาก URL ไม่สำเร็จ", SC_ERR)
+			end
+
+			return
+		end
+
+		-- 4) Base64 ซ้อนหลายชั้น (สูงสุด 4 ชั้น)
+		if looksLikeBase64(source) then
+			local decoded, layers = decodeRepeatedBase64(source, 4)
+			if layers > 0 then
+				vOutput.Text = decoded
+				setVStatus("SUCCESS | ถอด Base64 " .. layers .. " ชั้นแล้ว (ยังไม่รัน)", SC_OK)
+				return
+			end
+		end
+
+		-- 5) แสดงต้นฉบับแทน หากแกะอัตโนมัติไม่ได้
+		vOutput.Text = source
+		setVStatus("SOURCE VIEW | " .. tostring(message), SC_WARN)
 	end
 
 	local function runOutput()
 		local text = vOutput.Text
+
 		if trim(text) == "" then
 			setVStatus("ERROR | ไม่มี Source ให้รัน กด DECODE ก่อน", SC_ERR)
 			return
 		end
+
 		local ls = loadstring or (env and env.loadstring)
+
 		if type(ls) ~= "function" then
 			setVStatus("ERROR | ตัวรันนี้ไม่มี loadstring", SC_ERR)
 			return
 		end
+
+		-- กดครั้งแรก: ขอให้ยืนยัน
 		if armedText ~= text then
 			disarm()
+
 			armedText = text
+
 			local token = armToken
+
 			runBtn.Text = "CONFIRM"
-			setVStatus("กด CONFIRM อีกครั้งภายใน 6 วินาทีเพื่อรัน (" .. #text .. " ตัวอักษร)", SC_WARN)
+			setVStatus(
+				"กด CONFIRM อีกครั้งภายใน 6 วินาทีเพื่อรัน (" .. #text .. " ตัวอักษร)",
+				SC_WARN
+			)
+
 			task.delay(6, function()
 				if armToken == token and armedText then
 					disarm()
 					setVStatus("ยกเลิกการรันแล้ว (หมดเวลายืนยัน)", SC_WARN)
 				end
 			end)
+
 			return
 		end
 
+		-- กดครั้งที่สอง: รันจริง
 		disarm()
+
 		local fn, err = ls(text)
+
 		if not fn then
 			setVStatus("COMPILE ERROR | " .. tostring(err), SC_ERR)
 			return
 		end
+
 		setVStatus("RUNNING | กำลังรัน...", SC_WARN)
+
 		task.spawn(function()
 			local ok, e = pcall(fn)
-			if ok then setVStatus("DONE | รันเสร็จแล้ว", SC_OK)
-			else setVStatus("RUNTIME ERROR | " .. tostring(e), SC_ERR) end
+
+			if ok then
+				setVStatus("DONE | รันเสร็จแล้ว", SC_OK)
+			else
+				setVStatus("RUNTIME ERROR | " .. tostring(e), SC_ERR)
+			end
 		end)
 	end
 
@@ -3246,13 +5102,23 @@ function Ext.viewer()
 	runBtn.MouseButton1Click:Connect(runOutput)
 
 	copyBtn.MouseButton1Click:Connect(function()
-		if vOutput.Text == "" then setVStatus("ERROR | ไม่มี Source ให้คัดลอก", SC_ERR); return end
-		local fn = setclipboard or toclipboard or (env and env.setclipboard) or (syn and syn.write_clipboard)
+		if vOutput.Text == "" then
+			setVStatus("ERROR | ไม่มี Source ให้คัดลอก", SC_ERR)
+			return
+		end
+
+		local fn = setclipboard or toclipboard
+			or (env and env.setclipboard)
+			or (syn and syn.write_clipboard)
+
 		if type(fn) == "function" then
-			if pcall(fn, vOutput.Text) then setVStatus("SUCCESS | คัดลอกแล้ว", SC_OK)
-			else setVStatus("COPY FAILED | เลือกข้อความแล้วคัดลอกเอง", SC_ERR) end
+			if pcall(fn, vOutput.Text) then
+				setVStatus("SUCCESS | คัดลอกแล้ว", SC_OK)
+			else
+				setVStatus("COPY FAILED | เลือกข้อความแล้วคัดลอกเอง", SC_ERR)
+			end
 		else
-			setVStatus("เลือกข้อความในช่อง Output แล้วคัดลอกเอง", SC_WARN)
+			setVStatus("เลือกข้อความในช่อง Source แล้วคัดลอกเอง", SC_WARN)
 			vOutput:CaptureFocus()
 		end
 	end)
@@ -3267,17 +5133,25 @@ end
 
 Ext.viewer()
 
+
+-- V4.7: บันทึก / โหลดการตั้งค่า (เปิด HUB ใหม่แล้วค่าเดิมยังอยู่)
 function Ext.config()
 	local CFG_FILE = "KTHub_Config.json"
+
 	local LBL_AUTOLOAD = "โหลดการตั้งค่าอัตโนมัติตอนเปิด HUB"
 	local LBL_AUTOSAVE = "บันทึกอัตโนมัติเมื่อเปลี่ยนค่า"
+
+	-- สวิตช์ที่ไม่เก็บ (ปิดเสมอตอนเปิด HUB)
 	local SKIP = {
 		["ถอดจิต (เปิดแล้วมี UI แยก)"] = true,
 		[LBL_AUTOLOAD] = true,
 		[LBL_AUTOSAVE] = true
 	}
 
-	local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+	local canFile = type(writefile) == "function"
+		and type(readfile) == "function"
+		and type(isfile) == "function"
+
 	local meta = {autoLoad = true, autoSave = true}
 	local loading = true
 	local saveToken = 0
@@ -3285,99 +5159,181 @@ function Ext.config()
 	local function readRaw()
 		if canFile then
 			local ok, res = pcall(function()
-				if isfile(CFG_FILE) then return readfile(CFG_FILE) end
+				if isfile(CFG_FILE) then
+					return readfile(CFG_FILE)
+				end
 			end)
-			if ok and type(res) == "string" and res ~= "" then return res end
+
+			if ok and type(res) == "string" and res ~= "" then
+				return res
+			end
 		end
+
 		local mem = env.__KTHubCfgMem
-		if type(mem) == "string" and mem ~= "" then return mem end
+
+		if type(mem) == "string" and mem ~= "" then
+			return mem
+		end
+
 		return nil
 	end
 
 	local function readCfg()
 		local raw = readRaw()
+
 		if not raw then return nil end
-		local ok, data = pcall(function() return HttpService:JSONDecode(raw) end)
-		if ok and type(data) == "table" then return data end
+
+		local ok, data = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+
+		if ok and type(data) == "table" then
+			return data
+		end
+
 		return nil
 	end
 
 	local function writeCfg(data)
-		local ok, json = pcall(function() return HttpService:JSONEncode(data) end)
+		local ok, json = pcall(function()
+			return HttpService:JSONEncode(data)
+		end)
+
 		if not ok then return false end
+
 		env.__KTHubCfgMem = json
-		if canFile then return (pcall(writefile, CFG_FILE, json)) end
+
+		if canFile then
+			return (pcall(writefile, CFG_FILE, json))
+		end
+
 		return true
 	end
 
 	local function collect()
-		local data = {version = VERSION, meta = {autoLoad = meta.autoLoad, autoSave = meta.autoSave}, toggles = {}, sliders = {}}
+		local data = {
+			version = VERSION,
+			meta = {
+				autoLoad = meta.autoLoad,
+				autoSave = meta.autoSave
+			},
+			toggles = {},
+			sliders = {}
+		}
+
 		for name, t in pairs(Ext.toggles) do
-			if not SKIP[name] then data.toggles[name] = t.get() end
+			if not SKIP[name] then
+				data.toggles[name] = t.get()
+			end
 		end
+
 		for name, s in pairs(Ext.sliders) do
 			data.sliders[name] = s.get()
 		end
+
 		return data
 	end
 
 	local function applyCfg(data)
 		if type(data) ~= "table" then return 0 end
+
 		loading = true
+
 		local n = 0
+
+		-- สไลเดอร์ก่อน เพื่อให้สวิตช์ใช้ค่าที่โหลดแล้ว
 		if type(data.sliders) == "table" then
 			for name, v in pairs(data.sliders) do
 				local s = Ext.sliders[name]
-				if s and type(v) == "number" and pcall(s.set, v) then n = n + 1 end
+
+				if s and type(v) == "number" and pcall(s.set, v) then
+					n += 1
+				end
 			end
 		end
+
 		if type(data.toggles) == "table" then
 			for name, v in pairs(data.toggles) do
 				local t = Ext.toggles[name]
-				if t and not SKIP[name] and type(v) == "boolean" and pcall(t.set, v) then n = n + 1 end
+
+				if t and not SKIP[name] and type(v) == "boolean"
+					and pcall(t.set, v) then
+					n += 1
+				end
 			end
 		end
+
 		loading = false
+
 		return n
 	end
 
 	local function saveAll()
 		if Ext.dead then return false end
+
 		return writeCfg(collect())
 	end
 
+	-- เซฟแค่ค่า meta (ไม่ทับค่าอื่นที่บันทึกไว้)
 	local function saveMetaOnly()
 		local data = readCfg() or collect()
-		data.meta = {autoLoad = meta.autoLoad, autoSave = meta.autoSave}
+
+		data.meta = {
+			autoLoad = meta.autoLoad,
+			autoSave = meta.autoSave
+		}
+
 		writeCfg(data)
 	end
 
+	-- ใช้ตอนปิด HUB
 	Ext.saveNow = function()
 		if loading or not meta.autoSave then return end
+
 		saveAll()
 	end
 
+	-- เรียกทุกครั้งที่สวิตช์/สไลเดอร์เปลี่ยน (หน่วง 1.5 วิ ให้เซฟครั้งเดียวตอนหยุดลาก)
 	Ext.changed = function()
 		if loading or Ext.dead or not meta.autoSave then return end
-		saveToken = saveToken + 1
+
+		saveToken += 1
+
 		local mine = saveToken
+
 		task.delay(1.5, function()
-			if mine == saveToken and not loading then saveAll() end
+			if mine == saveToken and not loading then
+				saveAll()
+			end
 		end)
 	end
 
+	-- อ่านค่า meta ที่เคยบันทึกไว้ก่อนสร้างสวิตช์
 	local saved = readCfg()
+
 	if saved and type(saved.meta) == "table" then
-		if type(saved.meta.autoLoad) == "boolean" then meta.autoLoad = saved.meta.autoLoad end
-		if type(saved.meta.autoSave) == "boolean" then meta.meta.autoSave = saved.meta.autoSave end
+		if type(saved.meta.autoLoad) == "boolean" then
+			meta.autoLoad = saved.meta.autoLoad
+		end
+
+		if type(saved.meta.autoSave) == "boolean" then
+			meta.autoSave = saved.meta.autoSave
+		end
 	end
 
+	------------------------------------------------------------
+	-- UI
+	------------------------------------------------------------
 	local pCfg = Page("ตั้งค่า")
+
 	Label(pCfg, "บันทึก / โหลดการตั้งค่า")
+
 	new("TextLabel", {
 		Size = UDim2.new(1, -6, 0, 44),
 		BackgroundTransparency = 1,
-		Text = canFile and ("เก็บค่าไว้ในไฟล์ " .. CFG_FILE) or "จำค่าเฉพาะตอนเปิดเกมอยู่",
+		Text = canFile
+			and ("เก็บค่าสวิตช์และสไลเดอร์ไว้ในไฟล์ " .. CFG_FILE .. " (โฟลเดอร์ workspace ของตัวรัน) ไม่เก็บสวิตช์ถอดจิต")
+			or "ตัวรันนี้ไม่รองรับไฟล์ ค่าจะถูกจำไว้เฉพาะตอนที่เปิดเกมอยู่ (รัน HUB ซ้ำแล้วยังอยู่)",
 		TextColor3 = Color3.fromRGB(145, 160, 200),
 		Font = Enum.Font.GothamMedium,
 		TextSize = 11,
@@ -3386,22 +5342,94 @@ function Ext.config()
 		TextYAlignment = Enum.TextYAlignment.Top
 	}, pCfg)
 
-	Toggle(pCfg, LBL_AUTOLOAD, function(v) meta.autoLoad = v; if not loading then saveMetaOnly() end end, meta.autoLoad)
-	Toggle(pCfg, LBL_AUTOSAVE, function(v) meta.autoSave = v; if not loading then saveMetaOnly() end end, meta.autoSave)
-	Button(pCfg, "บันทึกตอนนี้", function() notify(saveAll() and "บันทึกการตั้งค่าแล้ว" or "บันทึกไม่สำเร็จ") end)
-	Button(pCfg, "โหลดค่าที่บันทึกไว้", function()
-		local data = readCfg()
-		if not data then notify("ยังไม่มีค่าที่บันทึกไว้"); return end
-		notify(("โหลดการตั้งค่าแล้ว (%d รายการ)"):format(applyCfg(data)))
-	end)
+	Toggle(
+		pCfg,
+		LBL_AUTOLOAD,
+		function(v)
+			meta.autoLoad = v
 
+			if not loading then saveMetaOnly() end
+		end,
+		meta.autoLoad
+	)
+
+	Toggle(
+		pCfg,
+		LBL_AUTOSAVE,
+		function(v)
+			meta.autoSave = v
+
+			if not loading then saveMetaOnly() end
+		end,
+		meta.autoSave
+	)
+
+	Button(
+		pCfg,
+		"บันทึกตอนนี้",
+		function()
+			if loading then
+				notify("กำลังโหลดค่า รอสักครู่")
+				return
+			end
+
+			notify(saveAll() and "บันทึกการตั้งค่าแล้ว" or "บันทึกไม่สำเร็จ")
+		end
+	)
+
+	Button(
+		pCfg,
+		"โหลดค่าที่บันทึกไว้",
+		function()
+			local data = readCfg()
+
+			if not data then
+				notify("ยังไม่มีค่าที่บันทึกไว้")
+				return
+			end
+
+			notify(
+				("โหลดการตั้งค่าแล้ว (%d รายการ)"):format(applyCfg(data))
+			)
+		end
+	)
+
+	Button(
+		pCfg,
+		"ลบค่าที่บันทึกไว้",
+		function()
+			env.__KTHubCfgMem = nil
+
+			if canFile then
+				if type(delfile) == "function" then
+					pcall(delfile, CFG_FILE)
+				else
+					pcall(writefile, CFG_FILE, "")
+				end
+			end
+
+			notify("ลบค่าที่บันทึกไว้แล้ว (ค่าปัจจุบันยังไม่เปลี่ยน)")
+		end
+	)
+
+	------------------------------------------------------------
+	-- โหลดตอนเปิด HUB (รอให้ตัวละครโหลดก่อน)
+	------------------------------------------------------------
 	task.spawn(function()
 		local waited = 0
-		while not LP.Character and waited < 5 do task.wait(0.1); waited = waited + 0.1 end
+
+		while not LP.Character and waited < 5 do
+			task.wait(0.1)
+			waited += 0.1
+		end
+
 		task.wait(0.3)
+
 		if Ext.dead then return end
+
 		if meta.autoLoad and saved then
 			local n = applyCfg(saved)
+
 			notify(("โหลดการตั้งค่าที่บันทึกไว้แล้ว (%d รายการ)"):format(n))
 		else
 			loading = false
@@ -3410,14 +5438,32 @@ function Ext.config()
 end
 
 Ext.config()
+
+-- Initial tab
 selectTab("สถานะ")
 
+-- Cleanup
 local function cleanup()
-	pcall(function() if Ext.saveNow then Ext.saveNow() end end)
+	if Ext.healthWatchConn then
+		pcall(function() Ext.healthWatchConn:Disconnect() end)
+		Ext.healthWatchConn = nil
+	end
+	Ext.healthWatchEnabled = false
+
+	-- V4.7: บันทึกค่าล่าสุด + ปิดฟีเจอร์เสริม
+	pcall(function()
+		if Ext.saveNow then Ext.saveNow() end
+	end)
+
 	Ext.dead = true
-	for _, f in ipairs(Ext.cleanups) do pcall(f) end
+
+	for _, f in ipairs(Ext.cleanups) do
+		pcall(f)
+	end
+
 	setSpeed(false)
 	setFly(false)
+
 	S.hitbox = false
 	S.hitboxP = false
 	restoreHitboxes()
@@ -3426,18 +5472,40 @@ local function cleanup()
 	hideAimLine()
 	setAntiLag(false)
 	hopping = false
+
 	setNoclip(false)
 	setInvisible(false)
 	setClickTeleport(false)
 	setPickupOnce(false)
+
 	S.proDetect = false
 	proResetAll()
-	pcall(function() RunService:UnbindFromRenderStep("KTHubAim") end)
-	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-	if gui then gui:Destroy() end
-	if overlay then overlay:Destroy() end
+
+	pcall(function()
+		RunService:UnbindFromRenderStep(
+			"KTHubAim"
+		)
+	end)
+
+	for _, c in ipairs(conns) do
+		pcall(function()
+			c:Disconnect()
+		end)
+	end
+
+	if gui then
+		gui:Destroy()
+	end
+
+	if overlay then
+		overlay:Destroy()
+	end
 end
 
 env.__KTHubCleanup = cleanup
+
 closeBtn.MouseButton1Click:Connect(cleanup)
-notify("ขอโทษ HUB " .. VERSION .. " โหลดเสร็จเรียบร้อย!")
+
+notify(
+	"ขอโทษ HUB " .. VERSION .. " โหลดเสร็จเรียบร้อย!"
+)
