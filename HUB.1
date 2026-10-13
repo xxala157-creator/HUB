@@ -1,5 +1,5 @@
---// ขอโทษ HUB V4.8
--- V4.8: Defense tools, health-change alerts, static deobfuscation helpers
+--// ขอโทษ HUB V4.9
+-- V4.9: Immortality test toggle, colorful live status HUD, key-gated script viewer
 -- หมายเหตุ: การป้องกันความเสียหาย/อมตะจริงต้องตรวจสอบจากเซิร์ฟเวอร์ของเกม
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,7 +17,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.8"
+local VERSION = "V4.9"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -34,6 +34,7 @@ local Ext = {toggles = {}, sliders = {}, cleanups = {}}
 local S = {
 	speed = false, speedVal = 50,
 	antiFling = false,
+	immortal = false,
 	fly = false, flyVal = 60,
 	ijump = false,
 	espP = false, espN = false,
@@ -128,6 +129,115 @@ local overlay = new("ScreenGui", {
 	ResetOnSpawn = false,
 	IgnoreGuiInset = true
 }, guiParent)
+
+
+-- V4.9: แถบสถานะสดแบบ Compact HUD (HP / FPS / Ping / สถานะฟีเจอร์)
+local hudRoot = new("Frame", {
+	Name = "KTHubStatusHUD",
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 38),
+	Size = UDim2.fromOffset(330, 62),
+	BackgroundColor3 = C.panel,
+	BorderSizePixel = 0,
+	ZIndex = 50
+}, overlay)
+corner(hudRoot, 12)
+stroke(hudRoot, Color3.fromRGB(115, 105, 255), 1.4)
+new("UIGradient", {
+	Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 24, 60)),
+		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(24, 22, 72)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 48, 68))
+	}),
+	Rotation = 0
+}, hudRoot)
+
+new("TextLabel", {
+	Size = UDim2.new(0.68, 0, 0, 16),
+	Position = UDim2.fromOffset(10, 4),
+	BackgroundTransparency = 1,
+	Text = "✦ ขอโทษ HUB  •  V4.9",
+	TextColor3 = Color3.fromRGB(125, 220, 255),
+	Font = FONT,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 51
+}, hudRoot)
+new("TextLabel", {
+	Size = UDim2.fromOffset(78, 16),
+	Position = UDim2.new(1, -88, 0, 4),
+	BackgroundColor3 = Color3.fromRGB(35, 150, 105),
+	Text = "● LIVE",
+	TextColor3 = Color3.new(1, 1, 1),
+	Font = FONT,
+	TextSize = 10,
+	ZIndex = 51
+}, hudRoot)
+
+local hudHpTrack = new("Frame", {
+	Position = UDim2.fromOffset(10, 25),
+	Size = UDim2.fromOffset(142, 8),
+	BackgroundColor3 = Color3.fromRGB(42, 51, 78),
+	BorderSizePixel = 0,
+	ZIndex = 51
+}, hudRoot)
+corner(hudHpTrack, 6)
+local hudHpFill = new("Frame", {
+	Size = UDim2.new(1, 0, 1, 0),
+	BackgroundColor3 = Color3.fromRGB(52, 215, 135),
+	BorderSizePixel = 0,
+	ZIndex = 52
+}, hudHpTrack)
+corner(hudHpFill, 6)
+new("UIGradient", {
+	Color = ColorSequence.new(Color3.fromRGB(42, 230, 155), Color3.fromRGB(35, 170, 255)),
+	Rotation = 0
+}, hudHpFill)
+local hudHpValue = new("TextLabel", {
+	Position = UDim2.fromOffset(160, 20),
+	Size = UDim2.fromOffset(58, 17),
+	BackgroundTransparency = 1,
+	Text = "HP --",
+	TextColor3 = Color3.fromRGB(225, 255, 235),
+	Font = FONT,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 51
+}, hudRoot)
+local hudStats = new("TextLabel", {
+	Position = UDim2.fromOffset(218, 20),
+	Size = UDim2.fromOffset(104, 17),
+	BackgroundTransparency = 1,
+	Text = "FPS -- • Ping --",
+	TextColor3 = Color3.fromRGB(200, 205, 255),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 9,
+	TextXAlignment = Enum.TextXAlignment.Right,
+	TextTruncate = Enum.TextTruncate.AtEnd,
+	ZIndex = 51
+}, hudRoot)
+local hudImmortal = new("TextLabel", {
+	Position = UDim2.fromOffset(10, 39),
+	Size = UDim2.fromOffset(146, 16),
+	BackgroundTransparency = 1,
+	Text = "✦ IMMORTAL: OFF",
+	TextColor3 = Color3.fromRGB(170, 180, 205),
+	Font = FONT,
+	TextSize = 9,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 51
+}, hudRoot)
+local hudAntiFling = new("TextLabel", {
+	Position = UDim2.fromOffset(164, 39),
+	Size = UDim2.fromOffset(158, 16),
+	BackgroundTransparency = 1,
+	Text = "◈ ANTI-FLING: OFF",
+	TextColor3 = Color3.fromRGB(170, 180, 205),
+	Font = FONT,
+	TextSize = 9,
+	TextXAlignment = Enum.TextXAlignment.Right,
+	ZIndex = 51
+}, hudRoot)
 
 -- Drag
 local function makeDraggable(handle, target)
@@ -3660,6 +3770,27 @@ local function updateStatus()
 			label.Text = tostring(data[key] or "--")
 		end
 	end
+
+	-- HUD live values and health bar tint
+	local char = LP.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hp = hum and math.max(0, hum.Health) or 0
+	local maxHp = hum and math.max(1, hum.MaxHealth) or 100
+	local ratio = math.clamp(hp / maxHp, 0, 1)
+	hudHpFill.Size = UDim2.new(ratio, 0, 1, 0)
+	if ratio <= 0.25 then
+		hudHpFill.BackgroundColor3 = Color3.fromRGB(255, 72, 95)
+	elseif ratio <= 0.55 then
+		hudHpFill.BackgroundColor3 = Color3.fromRGB(255, 174, 54)
+	else
+		hudHpFill.BackgroundColor3 = Color3.fromRGB(52, 215, 135)
+	end
+	hudHpValue.Text = string.format("HP %d/%d", math.floor(hp + 0.5), math.floor(maxHp + 0.5))
+	hudStats.Text = string.format("FPS %d • %s", math.floor(fpsValue + 0.5), tostring(data.Ping or "-- ms"))
+	hudImmortal.Text = S.immortal and "✦ IMMORTAL: ON*" or "✦ IMMORTAL: OFF"
+	hudImmortal.TextColor3 = S.immortal and Color3.fromRGB(255, 214, 95) or Color3.fromRGB(170, 180, 205)
+	hudAntiFling.Text = S.antiFling and "◈ ANTI-FLING: ON" or "◈ ANTI-FLING: OFF"
+	hudAntiFling.TextColor3 = S.antiFling and Color3.fromRGB(100, 240, 185) or Color3.fromRGB(170, 180, 205)
 end
 
 statusUpdater = task.spawn(function()
@@ -4340,7 +4471,7 @@ Toggle(
 	setAntiLag
 )
 
--- V4.8: ระบบป้องกัน • Defense
+-- V4.9: ระบบป้องกัน • Defense
 -- Anti-Fling เป็นการแก้แรงสะบัดฝั่งเครื่องเท่านั้น; เกมที่ใช้ server-authoritative physics อาจเขียนทับได้
 local antiFlingConn
 local antiFlingLastSafe
@@ -4404,8 +4535,35 @@ table.insert(Ext.cleanups, function()
 	setAntiFling(false)
 end)
 
+-- V4.9: ฟื้นเลือดฝั่งเครื่องเพื่อทดสอบเท่านั้น; เกมที่เซิร์ฟเวอร์ควบคุม HP ยังทำให้ตายได้
+local immortalConn
+local function setImmortal(v)
+	S.immortal = v and true or false
+	if immortalConn then
+		immortalConn:Disconnect()
+		immortalConn = nil
+	end
+	if not S.immortal then
+		notify("ปิดโหมดฟื้นเลือดฝั่งเครื่องแล้ว")
+		return
+	end
+	notify("เปิดโหมดฟื้นเลือดฝั่งเครื่องแล้ว — ไม่รับประกันกับเกมที่เซิร์ฟเวอร์ควบคุมดาเมจ")
+	immortalConn = RunService.Heartbeat:Connect(function()
+		local _, hum = getChar()
+		if not hum or hum.Health <= 0 then return end
+		if hum.Health < hum.MaxHealth then
+			hum.Health = hum.MaxHealth
+		end
+	end)
+end
+
+table.insert(Ext.cleanups, function()
+	setImmortal(false)
+end)
+
 Label(pTool, "🛡️ การป้องกัน (Defense)")
 Toggle(pTool, "ลดแรงกระเด็น / Anti-Fling", setAntiFling)
+Toggle(pTool, "อมตะ (ฟื้นเลือดฝั่งเครื่อง / ทดลอง)", setImmortal)
 Toggle(pTool, "แจ้งเตือนเมื่อเลือดลด (ไม่ใช่อมตะ)", function(v)
 	if not Ext.healthWatchConn and v then
 		local _, hum = getChar()
@@ -4429,8 +4587,8 @@ Toggle(pTool, "แจ้งเตือนเมื่อเลือดลด (
 	end
 end)
 
--- หมายเหตุ: ไม่แสดงปุ่มอมตะปลอม เพราะ Humanoid.Health/ForceField ที่สร้างฝั่ง client
--- ไม่สามารถป้องกันดาเมจที่เซิร์ฟเวอร์เป็นผู้ตัดสินได้อย่างเชื่อถือได้
+-- หมายเหตุ V4.9: ปุ่มอมตะด้านบนเป็นการฟื้นเลือดฝั่งเครื่องเพื่อทดลองเท่านั้น;
+-- เกมที่ตรวจสอบ HP/ดาเมจจากเซิร์ฟเวอร์ยังสามารถทำให้ตัวละครตายได้
 
 -- V4.7: กันหลุดเพราะ AFK (Anti-AFK)
 function Ext.antiAFK()
@@ -4627,7 +4785,7 @@ end)
 
 
 
--- V4.8: ตัวแกะสคริป (รองรับ string literal/base64/URL; obfuscation ซับซ้อนแกะไม่ได้ทุกแบบ)
+-- V4.9: ตัวแกะสคริป (ต้องใส่ Secret Key ก่อนใช้งาน)
 -- DECODE ไม่รันโค้ดใด ๆ มีเพียงปุ่ม RUN (กดยืนยัน 2 ครั้ง) ที่รัน
 function Ext.viewer()
 	local vCard = new("Frame", {
@@ -4641,7 +4799,7 @@ function Ext.viewer()
 		Size = UDim2.new(1, -20, 0, 18),
 		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
-		Text = "ตัวแกะสคริป V4.8 • DECODE / Base64 / string.char / URL",
+		Text = "ตัวแกะสคริป V4.9 • KEY LOCK / DECODE / Base64 / string.char / URL",
 		TextColor3 = C.accent,
 		Font = FONT,
 		TextSize = 13,
@@ -4695,7 +4853,7 @@ function Ext.viewer()
 		C.text
 	)
 
-	new("TextLabel", {
+	local sourceLabel = new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 16),
 		Position = UDim2.fromOffset(10, 124),
 		BackgroundTransparency = 1,
@@ -4755,6 +4913,122 @@ function Ext.viewer()
 	local runBtn = vButton("RUN", 1, Color3.fromRGB(205, 120, 35))
 	local copyBtn = vButton("COPY", 2, Color3.fromRGB(35, 145, 100))
 	local clearBtn = vButton("CLEAR", 3, C.off)
+
+	-- Client-side UI gate only. The key is embedded in this script and is not strong access control.
+	local VIEWER_KEY = "alL@A75056B@zdM"
+	local viewerUnlocked = false
+	vInput.Parent.Visible = false
+	vOutput.Parent.Visible = false
+	sourceLabel.Visible = false
+	vStatus.Visible = false
+	decodeBtn.Visible = false
+	runBtn.Visible = false
+	copyBtn.Visible = false
+	clearBtn.Visible = false
+
+	local lockPanel = new("Frame", {
+		Name = "ScriptViewerKeyLock",
+		Position = UDim2.fromOffset(10, 28),
+		Size = UDim2.new(1, -20, 0, 286),
+		BackgroundColor3 = Color3.fromRGB(17, 24, 62),
+		BorderSizePixel = 0,
+		ZIndex = 20
+	}, vCard)
+	corner(lockPanel, 10)
+	stroke(lockPanel, Color3.fromRGB(145, 105, 255), 1.2)
+	new("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(18, 28, 72), Color3.fromRGB(34, 20, 74)),
+		Rotation = 35
+	}, lockPanel)
+	new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 28),
+		Position = UDim2.fromOffset(10, 22),
+		BackgroundTransparency = 1,
+		Text = "🔒 ล็อกตัวแกะสคริป",
+		TextColor3 = Color3.fromRGB(190, 170, 255),
+		Font = FONT,
+		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 21
+	}, lockPanel)
+	new("TextLabel", {
+		Size = UDim2.new(1, -24, 0, 42),
+		Position = UDim2.fromOffset(12, 55),
+		BackgroundTransparency = 1,
+		Text = "ใส่ Secret Key เพื่อเปิดใช้ DECODE / COPY / RUN\nหมายเหตุ: เป็นเพียงล็อกหน้า UI ของสคริปต์ฝั่งเครื่อง",
+		TextColor3 = Color3.fromRGB(205, 210, 238),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 21
+	}, lockPanel)
+	local keyBox = new("TextBox", {
+		Position = UDim2.new(0, 20, 0, 112),
+		Size = UDim2.new(1, -40, 0, 36),
+		BackgroundColor3 = Color3.fromRGB(9, 14, 39),
+		Text = "",
+		PlaceholderText = "กรอก Secret Key",
+		PlaceholderColor3 = Color3.fromRGB(120, 135, 178),
+		TextColor3 = Color3.fromRGB(245, 245, 255),
+		ClearTextOnFocus = false,
+		Font = Enum.Font.Code,
+		TextSize = 13,
+		ZIndex = 21
+	}, lockPanel)
+	corner(keyBox, 7)
+	stroke(keyBox, Color3.fromRGB(88, 105, 190), 1)
+	local unlockBtn = new("TextButton", {
+		Position = UDim2.new(0, 20, 0, 158),
+		Size = UDim2.new(1, -40, 0, 34),
+		BackgroundColor3 = Color3.fromRGB(112, 78, 235),
+		Text = "UNLOCK",
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = FONT,
+		TextSize = 13,
+		AutoButtonColor = true,
+		ZIndex = 21
+	}, lockPanel)
+	corner(unlockBtn, 7)
+	local lockStatus = new("TextLabel", {
+		Position = UDim2.new(0, 16, 0, 205),
+		Size = UDim2.new(1, -32, 0, 28),
+		BackgroundTransparency = 1,
+		Text = "WAITING FOR KEY • V4.9",
+		TextColor3 = Color3.fromRGB(115, 220, 255),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextWrapped = true,
+		ZIndex = 21
+	}, lockPanel)
+	local function setLockStatus(message, color)
+		lockStatus.Text = tostring(message)
+		lockStatus.TextColor3 = color or Color3.fromRGB(115, 220, 255)
+	end
+	unlockBtn.Activated:Connect(function()
+		if keyBox.Text == VIEWER_KEY then
+			viewerUnlocked = true
+			lockPanel.Visible = false
+			vInput.Parent.Visible = true
+			vOutput.Parent.Visible = true
+			sourceLabel.Visible = true
+			vStatus.Visible = true
+			decodeBtn.Visible = true
+			runBtn.Visible = true
+			copyBtn.Visible = true
+			clearBtn.Visible = true
+			keyBox.Text = ""
+			notify("ปลดล็อกตัวแกะสคริป V4.9 แล้ว")
+		else
+			keyBox.Text = ""
+			setLockStatus("คีย์ไม่ถูกต้อง • ลองอีกครั้ง", Color3.fromRGB(255, 105, 125))
+		end
+	end)
+	keyBox.FocusLost:Connect(function(enterPressed)
+		if enterPressed and not viewerUnlocked then
+			unlockBtn:Activate()
+		end
+	end)
 
 	------------------------------------------------------------
 	-- Helpers
@@ -4968,6 +5242,10 @@ function Ext.viewer()
 	end
 
 	local function analyze()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		if busy then return end
 
 		disarm()
@@ -5037,6 +5315,10 @@ function Ext.viewer()
 	end
 
 	local function runOutput()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		local text = vOutput.Text
 
 		if trim(text) == "" then
@@ -5102,6 +5384,10 @@ function Ext.viewer()
 	runBtn.MouseButton1Click:Connect(runOutput)
 
 	copyBtn.MouseButton1Click:Connect(function()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		if vOutput.Text == "" then
 			setVStatus("ERROR | ไม่มี Source ให้คัดลอก", SC_ERR)
 			return
@@ -5124,6 +5410,10 @@ function Ext.viewer()
 	end)
 
 	clearBtn.MouseButton1Click:Connect(function()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		disarm()
 		vInput.Text = ""
 		vOutput.Text = ""
