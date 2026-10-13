@@ -273,7 +273,7 @@ local header = new("Frame", {
 }, main)
 
 new("TextLabel", {
-	Size = UDim2.new(1, -70, 1, 0),
+	Size = UDim2.new(1, -105, 1, 0),
 	Position = UDim2.fromOffset(12, 0),
 	BackgroundTransparency = 1,
 	Text = "ขอโทษ HUB | " .. VERSION,
@@ -282,6 +282,24 @@ new("TextLabel", {
 	TextSize = 16,
 	TextXAlignment = Enum.TextXAlignment.Left
 }, header)
+
+local hudToggleBtn = new("TextButton", {
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -70, 0.5, 0),
+	Size = UDim2.fromOffset(28, 22),
+	BackgroundColor3 = Color3.fromRGB(35, 145, 105),
+	Text = "HUD",
+	TextColor3 = Color3.new(1, 1, 1),
+	Font = FONT,
+	TextSize = 9,
+	AutoButtonColor = true
+}, header)
+corner(hudToggleBtn, 5)
+hudToggleBtn.MouseButton1Click:Connect(function()
+	miniHud.Visible = not miniHud.Visible
+	hudToggleBtn.BackgroundColor3 = miniHud.Visible and Color3.fromRGB(35, 145, 105) or C.off
+	notify(miniHud.Visible and "เปิดแถบสถานะขนาดเล็กแล้ว" or "ปิดแถบสถานะขนาดเล็กแล้ว")
+end)
 
 makeDraggable(header, main)
 
@@ -499,6 +517,24 @@ local function Label(pg, text)
 	}, pg)
 end
 
+local function AccentFor(text)
+	local t = string.lower(tostring(text or ""))
+	if t:find("อมตะ") or t:find("immortal") or t:find("เลือด") or t:find("heal") then
+		return Color3.fromRGB(46, 190, 115) -- green: health/safety
+	elseif t:find("โปร") or t:find("ตรวจจับ") or t:find("anti") or t:find("fling") or t:find("ป้องกัน") then
+		return Color3.fromRGB(242, 157, 43) -- orange: detection/protection
+	elseif t:find("วาร์ป") or t:find("เทเล") or t:find("tp") or t:find("บิน") or t:find("fly") then
+		return Color3.fromRGB(48, 157, 255) -- blue: movement
+	elseif t:find("มอง") or t:find("esp") or t:find("ล็อค") or t:find("aim") or t:find("hitbox") then
+		return Color3.fromRGB(177, 95, 255) -- purple: vision/targeting
+	elseif t:find("ความเร็ว") or t:find("สปีด") or t:find("speed") or t:find("กระโดด") then
+		return Color3.fromRGB(40, 205, 205) -- cyan: movement stats
+	elseif t:find("เซฟ") or t:find("บันทึก") or t:find("โหลด") or t:find("คัดลอก") or t:find("แกะ") then
+		return Color3.fromRGB(255, 105, 160) -- pink: tools/data
+	end
+	return Color3.fromRGB(48, 157, 255)
+end
+
 local function Toggle(pg, text, cb, default)
 	local row = new("Frame", {
 		Size = UDim2.new(1, -6, 0, 34),
@@ -506,10 +542,18 @@ local function Toggle(pg, text, cb, default)
 	}, pg)
 
 	corner(row, 10)
+	local rowAccent = AccentFor(text)
+	local strip = new("Frame", {
+		Size = UDim2.new(0, 4, 1, -14),
+		Position = UDim2.fromOffset(5, 7),
+		BackgroundColor3 = rowAccent,
+		BorderSizePixel = 0
+	}, row)
+	corner(strip, 3)
 
 	new("TextLabel", {
-		Size = UDim2.new(1, -60, 1, 0),
-		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(1, -66, 1, 0),
+		Position = UDim2.fromOffset(15, 0),
 		BackgroundTransparency = 1,
 		Text = text,
 		TextColor3 = C.text,
@@ -556,7 +600,7 @@ local function Toggle(pg, text, cb, default)
 			sw,
 			TweenInfo.new(0.15),
 			{
-				BackgroundColor3 = on and C.accent or C.off
+				BackgroundColor3 = on and rowAccent or C.off
 			}
 		):Play()
 
@@ -588,6 +632,14 @@ local function Slider(pg, text, min, max, def, cb)
 	}, pg)
 
 	corner(row, 10)
+	local rowAccent = AccentFor(text)
+	local strip = new("Frame", {
+		Size = UDim2.new(0, 4, 1, -12),
+		Position = UDim2.fromOffset(5, 6),
+		BackgroundColor3 = rowAccent,
+		BorderSizePixel = 0
+	}, row)
+	corner(strip, 3)
 
 	local lbl = new("TextLabel", {
 		Size = UDim2.new(1, -20, 0, 18),
@@ -610,7 +662,7 @@ local function Slider(pg, text, min, max, def, cb)
 
 	local fill = new("Frame", {
 		Size = UDim2.fromScale((def - min) / (max - min), 1),
-		BackgroundColor3 = C.accent
+		BackgroundColor3 = rowAccent
 	}, bar)
 
 	corner(fill, 3)
@@ -691,9 +743,10 @@ local function Slider(pg, text, min, max, def, cb)
 end
 
 local function Button(pg, text, cb)
+	local buttonAccent = AccentFor(text)
 	local b = new("TextButton", {
 		Size = UDim2.new(1, -6, 0, 30),
-		BackgroundColor3 = C.accent,
+		BackgroundColor3 = buttonAccent,
 		Text = text,
 		TextColor3 = Color3.new(1, 1, 1),
 		Font = FONT,
@@ -3489,6 +3542,46 @@ hudAntiFling = new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Right
 }, liveCard)
 
+-- แถบสถานะลอยขนาดเล็ก เปิด/ปิดได้จากปุ่ม HUD ในหัว HUB
+local miniHud = new("Frame", {
+	Name = "MiniStatusBar",
+	Position = UDim2.new(0.5, -115, 0, 12),
+	Size = UDim2.fromOffset(230, 34),
+	BackgroundColor3 = Color3.fromRGB(8, 12, 28),
+	BackgroundTransparency = 0.08,
+	BorderSizePixel = 0,
+	Visible = false,
+	ZIndex = 20
+}, overlay)
+corner(miniHud, 9)
+stroke(miniHud, Color3.fromRGB(65, 155, 255), 1.4)
+new("UIGradient", {
+	Color = ColorSequence.new(Color3.fromRGB(18, 34, 70), Color3.fromRGB(8, 12, 28)),
+	Rotation = 0
+}, miniHud)
+local miniHp = new("Frame", {
+	Position = UDim2.fromOffset(8, 8),
+	Size = UDim2.fromOffset(4, 18),
+	BackgroundColor3 = Color3.fromRGB(52, 215, 135),
+	BorderSizePixel = 0,
+	ZIndex = 21
+}, miniHud)
+corner(miniHp, 2)
+local miniText = new("TextLabel", {
+	Position = UDim2.fromOffset(18, 0),
+	Size = UDim2.new(1, -26, 1, 0),
+	BackgroundTransparency = 1,
+	Text = "HP --/--  •  FPS --  •  PING --",
+	TextColor3 = Color3.fromRGB(230, 240, 255),
+	Font = FONT,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextTruncate = Enum.TextTruncate.AtEnd,
+	ZIndex = 21
+}, miniHud)
+makeDraggable(miniHud, miniHud)
+
+
 -- สีแยกกลุ่ม: ฟ้า = เซิร์ฟเวอร์, เขียว = ของเรา, ส้ม = ผู้เล่นอื่น
 StatusUI.tintServer = C.accent
 StatusUI.tintMe = Color3.fromRGB(46, 190, 110)
@@ -3782,6 +3875,8 @@ local function updateStatus()
 	end
 	hudHpValue.Text = string.format("HP %d/%d", math.floor(hp + 0.5), math.floor(maxHp + 0.5))
 	hudStats.Text = string.format("FPS %d • %s", math.floor(fpsValue + 0.5), tostring(data.Ping or "-- ms"))
+	miniText.Text = string.format("HP %d/%d  •  FPS %d  •  PING %s", math.floor(hp + 0.5), math.floor(maxHp + 0.5), math.floor(fpsValue + 0.5), tostring(data.Ping or "--"))
+	miniHp.BackgroundColor3 = ratio <= 0.25 and Color3.fromRGB(255, 72, 95) or (ratio <= 0.55 and Color3.fromRGB(255, 174, 54) or Color3.fromRGB(52, 215, 135))
 	hudImmortal.Text = S.immortal and "✦ IMMORTAL: ON*" or "✦ IMMORTAL: OFF"
 	hudImmortal.TextColor3 = S.immortal and Color3.fromRGB(255, 214, 95) or Color3.fromRGB(170, 180, 205)
 	hudAntiFling.Text = S.antiFling and "◈ ANTI-FLING: ON" or "◈ ANTI-FLING: OFF"
