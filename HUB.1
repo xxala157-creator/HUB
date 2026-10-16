@@ -17,14 +17,54 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.9"
+local VERSION = "V5.0"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
 
 local conns = {}
+local diagnostics = {errors = {}, lastKey = nil, lastAt = 0}
+local MAX_ERROR_HISTORY = 60
+local moduleContext = nil
+local moduleConnections = {}
+local uiMeta = setmetatable({}, {__mode = "k"})
+local uiTransparency = 0
+local smartPerformanceEnabled = true
+local activeTabName = "สถานะ"
+
+local function recordDiagnostic(source, message)
+	local msg = tostring(message or "Unknown error")
+	if #msg > 260 then msg = string.sub(msg, 1, 260) .. "…" end
+	local key = tostring(source) .. "|" .. msg
+	local now = os.clock()
+	if diagnostics.lastKey == key and now - diagnostics.lastAt < 4 then return end
+	diagnostics.lastKey, diagnostics.lastAt = key, now
+	table.insert(diagnostics.errors, {
+		time = os.date("%H:%M:%S"),
+		source = tostring(source or "Unknown"),
+		message = msg
+	})
+	while #diagnostics.errors > MAX_ERROR_HISTORY do
+		table.remove(diagnostics.errors, 1)
+	end
+end
+
+local function disconnectModuleConnections(name)
+	local list = moduleConnections[name]
+	if list then
+		for _, c in ipairs(list) do
+			pcall(function() c:Disconnect() end)
+		end
+	end
+	moduleConnections[name] = {}
+end
+
 local function track(c)
 	table.insert(conns, c)
+	if moduleContext then
+		moduleConnections[moduleContext] = moduleConnections[moduleContext] or {}
+		table.insert(moduleConnections[moduleContext], c)
+	end
 	return c
 end
 
@@ -76,10 +116,42 @@ local C = {
 
 local FONT = Enum.Font.GothamBold
 
+local function paletteRole(value)
+	if typeof(value) ~= "Color3" then return nil end
+	for _, role in ipairs({"bg", "panel", "row", "accent", "text", "off"}) do
+		if value == C[role] then return role end
+	end
+	return nil
+end
+
+local function backgroundPaletteRole(value, class)
+	local exact = paletteRole(value)
+	if exact then return exact end
+	if typeof(value) ~= "Color3" or (class ~= "Frame" and class ~= "ScrollingFrame" and class ~= "TextButton" and class ~= "TextBox") then
+		return nil
+	end
+	-- Theme dark custom window surfaces too, while preserving vivid status/action buttons.
+	local luminance = 0.2126 * value.R + 0.7152 * value.G + 0.0722 * value.B
+	if luminance < 0.055 then return "bg" end
+	if luminance < 0.105 then return "panel" end
+	if luminance < 0.19 then return "row" end
+	return nil
+end
+
 local function new(class, props, parent)
 	local o = Instance.new(class)
 	for k, v in pairs(props) do
 		o[k] = v
+	end
+	uiMeta[o] = {
+		backgroundRole = backgroundPaletteRole(props.BackgroundColor3, class),
+		textRole = paletteRole(props.TextColor3),
+		colorRole = paletteRole(props.Color),
+		imageRole = paletteRole(props.ImageColor3),
+		baseTransparency = props.BackgroundTransparency
+	}
+	if uiTransparency > 0 and type(props.BackgroundTransparency) == "number" and props.BackgroundTransparency < 1 then
+		o.BackgroundTransparency = math.clamp(props.BackgroundTransparency + (1 - props.BackgroundTransparency) * uiTransparency, 0, 0.98)
 	end
 	if parent then o.Parent = parent end
 	return o
@@ -131,8 +203,9 @@ local overlay = new("ScreenGui", {
 }, guiParent)
 
 
--- V4.9: live status card is embedded in the "สถานะ" tab, not floating on screen.
+-- V5.0: forward locals referenced by callbacks before their UI is built.
 local hudHpFill, hudHpValue, hudStats, hudImmortal, hudAntiFling
+local miniHud, pStatus
 
 
 -- Drag
@@ -458,6 +531,7 @@ corner(content, 10)
 local pages, tabBtns = {}, {}
 
 local function selectTab(name)
+	activeTabName = name
 	for n, p in pairs(pages) do
 		p.Visible = (n == name)
 	end
@@ -583,30 +657,54 @@ local function Toggle(pg, text, cb, default)
 
 	local on = false
 
-	local function set(v)
-		on = v
-
+	local function animateToggle()
 		TweenService:Create(
 			knob,
 			TweenInfo.new(0.15),
 			{
-				Position = on
-					and UDim2.fromOffset(22, 2)
-					or UDim2.fromOffset(2, 2)
+				Position = on and UDim2.fromOffset(22, 2) or UDim2.fromOffset(2, 2)
 			}
 		):Play()
-
 		TweenService:Create(
 			sw,
 			TweenInfo.new(0.15),
-			{
-				BackgroundColor3 = on and rowAccent or C.off
-			}
+			{BackgroundColor3 = on and rowAccent or C.off}
 		):Play()
+	end
 
-		cb(on)
+	local function set(v)
+		local targetOn = (v == true)
+		if on == targetOn then
+			if not targetOn then disconnectModuleConnections(text) end
+			return
+		end
+		on = targetOn
+		if on then moduleConnections[text] = {} end
+		animateToggle()
 
-		if Ext.changed then Ext.changed() end
+		local previousContext = moduleContext
+		moduleContext = text
+		local ok, err = pcall(cb, on)
+		moduleContext = previousContext
+
+		if not ok then
+			recordDiagnostic("Module: " .. tostring(text), err)
+			if on then
+				-- Best-effort rollback so a broken module cannot leave partial state behind.
+				local rollbackContext = moduleContext
+				moduleContext = text
+				pcall(cb, false)
+				moduleContext = rollbackContext
+				on = false
+				animateToggle()
+			end
+		end
+
+		if not on then disconnectModuleConnections(text) end
+		if Ext.changed then
+			local changedOk, changedErr = pcall(Ext.changed)
+			if not changedOk then recordDiagnostic("Settings autosave", changedErr) end
+		end
 	end
 
 	Ext.toggles[text] = {
@@ -755,7 +853,13 @@ local function Button(pg, text, cb)
 
 	corner(b, 5)
 
-	b.MouseButton1Click:Connect(cb)
+	b.MouseButton1Click:Connect(function()
+		local ok, err = pcall(cb)
+		if not ok then
+			recordDiagnostic("Button: " .. tostring(text), err)
+			notify("ปุ่มนี้เกิด Error — ดูประวัติได้ที่ Diagnostics")
+		end
+	end)
 
 	return b
 end
@@ -3387,8 +3491,12 @@ end)
 -- อัปเดตจำนวนคนในเซิฟทุกวินาที + ตอนมีคนเข้า/ออก
 task.spawn(function()
 	while gui.Parent do
-		updateServerInfo()
-		task.wait(1)
+		local shouldUpdate = (not smartPerformanceEnabled) or (pages["เซิฟ"] and pages["เซิฟ"].Visible)
+		if shouldUpdate then
+			local ok, err = pcall(updateServerInfo)
+			if not ok then recordDiagnostic("Server dashboard", err) end
+		end
+		task.wait(shouldUpdate and 1 or 2.5)
 	end
 end)
 
@@ -3412,7 +3520,7 @@ end))
 -- BUILD PAGES
 
 -- STATUS
-local pStatus = Page("สถานะ")
+pStatus = Page("สถานะ")
 
 local statusHeader = new("Frame", {
 	Size = UDim2.new(1, -10, 0, 68),
@@ -3543,7 +3651,7 @@ hudAntiFling = new("TextLabel", {
 }, liveCard)
 
 -- แถบสถานะลอยขนาดเล็ก เปิด/ปิดได้จากปุ่ม HUD ในหัว HUB
-local miniHud = new("Frame", {
+miniHud = new("Frame", {
 	Name = "MiniStatusBar",
 	Position = UDim2.new(0.5, -115, 0, 12),
 	Size = UDim2.fromOffset(230, 34),
@@ -3840,8 +3948,12 @@ do
 
 	task.spawn(function()
 		while gui.Parent do
-			pcall(updateCard)
-			task.wait(0.5)
+			local shouldUpdate = (not smartPerformanceEnabled) or (pages["สถานะ"] and pages["สถานะ"].Visible)
+			if shouldUpdate then
+				local ok, err = pcall(updateCard)
+				if not ok then recordDiagnostic("Player status card", err) end
+			end
+			task.wait(shouldUpdate and 0.5 or 2)
 		end
 	end)
 end
@@ -3885,8 +3997,12 @@ end
 
 statusUpdater = task.spawn(function()
 	while gui.Parent do
-		pcall(updateStatus)
-		task.wait(0.5)
+		local shouldUpdate = (not smartPerformanceEnabled) or (pages["สถานะ"] and pages["สถานะ"].Visible) or (miniHud and miniHud.Visible)
+		if shouldUpdate then
+			local ok, err = pcall(updateStatus)
+			if not ok then recordDiagnostic("Status updater", err) end
+		end
+		task.wait(shouldUpdate and 0.5 or 1.5)
 	end
 end)
 
@@ -5818,6 +5934,447 @@ function Ext.config()
 end
 
 Ext.config()
+
+----------------------------------------------------------------
+-- V5.0 ADD-ONS: Smart Performance, Theme Studio, Module Manager,
+-- Performance Monitor and Diagnostics Center
+----------------------------------------------------------------
+
+-- Smart Performance + real-time FPS monitor
+local pPerf = Page("ประสิทธิภาพ")
+Label(pPerf, "Smart Performance System")
+Toggle(pPerf, "Smart Performance System", function(v)
+	smartPerformanceEnabled = v
+	notify(v and "Smart Performance เปิดแล้ว: ลดการอัปเดตแท็บที่ไม่ได้เปิด" or "Smart Performance ปิดแล้ว")
+end, true)
+
+local perfCard = new("Frame", {
+	Size = UDim2.new(1, -6, 0, 142),
+	BackgroundColor3 = C.row,
+	BorderSizePixel = 0
+}, pPerf)
+corner(perfCard, 9)
+new("TextLabel", {
+	Position = UDim2.fromOffset(10, 5),
+	Size = UDim2.new(1, -20, 0, 20),
+	BackgroundTransparency = 1,
+	Text = "Performance Monitor • FPS แบบเรียลไทม์",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, perfCard)
+local perfCurrent = new("TextLabel", {
+	Position = UDim2.fromOffset(10, 27),
+	Size = UDim2.new(0.48, -8, 0, 18),
+	BackgroundTransparency = 1,
+	Text = "FPS ปัจจุบัน: --",
+	TextColor3 = C.accent,
+	Font = FONT,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, perfCard)
+local perfAverage = new("TextLabel", {
+	Position = UDim2.new(0.5, 0, 0, 27),
+	Size = UDim2.new(0.48, -8, 0, 18),
+	BackgroundTransparency = 1,
+	Text = "เฉลี่ย: -- FPS",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, perfCard)
+local perfRange = new("TextLabel", {
+	Position = UDim2.fromOffset(10, 45),
+	Size = UDim2.new(0.55, -10, 0, 16),
+	BackgroundTransparency = 1,
+	Text = "ต่ำสุด/สูงสุด: -- / --",
+	TextColor3 = C.text,
+	Font = Enum.Font.GothamMedium,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, perfCard)
+local perfMemory = new("TextLabel", {
+	Position = UDim2.new(0.56, 0, 0, 45),
+	Size = UDim2.new(0.42, -8, 0, 16),
+	BackgroundTransparency = 1,
+	Text = "Memory: -- MB",
+	TextColor3 = C.text,
+	Font = Enum.Font.GothamMedium,
+	TextSize = 10,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, perfCard)
+local graphFrame = new("Frame", {
+	Position = UDim2.fromOffset(7, 65),
+	Size = UDim2.new(1, -14, 0, 70),
+	BackgroundColor3 = C.panel,
+	BackgroundTransparency = 0.15,
+	BorderSizePixel = 0,
+	ClipsDescendants = true
+}, perfCard)
+corner(graphFrame, 6)
+local perfBars = {}
+local PERF_BAR_COUNT = 30
+for i = 1, PERF_BAR_COUNT do
+	perfBars[i] = new("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 5 + (i - 1) * 12, 1, -4),
+		Size = UDim2.fromOffset(8, 3),
+		BackgroundColor3 = C.accent,
+		BorderSizePixel = 0
+	}, graphFrame)
+	corner(perfBars[i], 2)
+end
+local fpsSamples = {}
+
+task.spawn(function()
+	while gui.Parent do
+		if pages["ประสิทธิภาพ"] and pages["ประสิทธิภาพ"].Visible then
+			local current = math.clamp(math.floor((tonumber(fpsValue) or 0) + 0.5), 0, 1000)
+			table.insert(fpsSamples, current)
+			while #fpsSamples > PERF_BAR_COUNT do table.remove(fpsSamples, 1) end
+			local total, lowest, highest = 0, math.huge, 0
+			for _, sample in ipairs(fpsSamples) do
+				total += sample
+				lowest = math.min(lowest, sample)
+				highest = math.max(highest, sample)
+			end
+			local average = #fpsSamples > 0 and total / #fpsSamples or 0
+			perfCurrent.Text = ("FPS ปัจจุบัน: %d"):format(current)
+			perfAverage.Text = ("เฉลี่ย: %.1f FPS"):format(average)
+			perfRange.Text = ("ต่ำสุด/สูงสุด: %d / %d"):format(lowest == math.huge and 0 or lowest, highest)
+			local memoryMb = nil
+			pcall(function() memoryMb = Stats:GetTotalMemoryUsageMb() end)
+			perfMemory.Text = memoryMb and ("Memory: %.0f MB"):format(memoryMb) or "Memory: N/A"
+			for i, bar in ipairs(perfBars) do
+				local index = #fpsSamples - PERF_BAR_COUNT + i
+				local sample = index >= 1 and fpsSamples[index] or 0
+				local height = math.clamp(math.floor((sample / 180) * 56), 3, 56)
+				bar.Size = UDim2.fromOffset(8, height)
+				bar.BackgroundColor3 = sample < 25 and Color3.fromRGB(255, 75, 95) or (sample < 50 and Color3.fromRGB(255, 175, 55) or C.accent)
+			end
+			task.wait(0.25)
+		else
+			-- Graph sampling pauses when its tab is hidden.
+			task.wait(smartPerformanceEnabled and 1.5 or 0.75)
+		end
+	end
+end)
+
+-- Theme Studio
+local pTheme = Page("Theme Studio")
+Label(pTheme, "Theme Studio • สีและความโปร่งใสของ UI")
+local themePalettes = {
+	{name = "Ocean", bg = Color3.fromRGB(12, 16, 42), panel = Color3.fromRGB(15, 21, 52), row = Color3.fromRGB(20, 28, 66), accent = Color3.fromRGB(30, 150, 255), text = Color3.fromRGB(235, 240, 255), off = Color3.fromRGB(45, 52, 90)},
+	{name = "Crimson", bg = Color3.fromRGB(32, 10, 25), panel = Color3.fromRGB(48, 14, 35), row = Color3.fromRGB(66, 20, 45), accent = Color3.fromRGB(255, 65, 105), text = Color3.fromRGB(255, 238, 245), off = Color3.fromRGB(94, 38, 58)},
+	{name = "Emerald", bg = Color3.fromRGB(7, 27, 27), panel = Color3.fromRGB(10, 38, 38), row = Color3.fromRGB(15, 52, 49), accent = Color3.fromRGB(35, 220, 155), text = Color3.fromRGB(229, 255, 246), off = Color3.fromRGB(35, 76, 70)},
+	{name = "Violet", bg = Color3.fromRGB(20, 12, 42), panel = Color3.fromRGB(30, 18, 57), row = Color3.fromRGB(43, 25, 76), accent = Color3.fromRGB(170, 100, 255), text = Color3.fromRGB(246, 238, 255), off = Color3.fromRGB(62, 45, 95)},
+	{name = "Sunset", bg = Color3.fromRGB(38, 21, 12), panel = Color3.fromRGB(53, 28, 15), row = Color3.fromRGB(72, 39, 19), accent = Color3.fromRGB(255, 145, 55), text = Color3.fromRGB(255, 245, 231), off = Color3.fromRGB(99, 62, 37)}
+}
+local activeTheme = 1
+local customAccent = false
+local selectedRGB = {r = 30, g = 150, b = 255}
+local themeInfo = new("TextLabel", {
+	Size = UDim2.new(1, -6, 0, 28),
+	BackgroundColor3 = C.row,
+	Text = "Preset: Ocean • Accent RGB: 30, 150, 255",
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 11,
+	TextWrapped = true
+}, pTheme)
+corner(themeInfo, 6)
+
+local function applyTheme()
+	local palette = themePalettes[activeTheme]
+	C.bg, C.panel, C.row, C.text, C.off = palette.bg, palette.panel, palette.row, palette.text, palette.off
+	C.accent = customAccent and Color3.fromRGB(selectedRGB.r, selectedRGB.g, selectedRGB.b) or palette.accent
+	for _, root in ipairs({gui, overlay}) do
+		for _, obj in ipairs(root:GetDescendants()) do
+			local meta = uiMeta[obj]
+			if meta then
+				if meta.backgroundRole and obj:IsA("GuiObject") then
+					obj.BackgroundColor3 = C[meta.backgroundRole]
+				end
+				if meta.textRole and obj:IsA("TextLabel") or meta.textRole and obj:IsA("TextButton") or meta.textRole and obj:IsA("TextBox") then
+					obj.TextColor3 = C[meta.textRole]
+				end
+				if meta.colorRole and obj:IsA("UIStroke") then obj.Color = C[meta.colorRole] end
+				if meta.imageRole and obj:IsA("ImageLabel") or meta.imageRole and obj:IsA("ImageButton") then obj.ImageColor3 = C[meta.imageRole] end
+				if type(meta.baseTransparency) == "number" and meta.baseTransparency < 1 and obj:IsA("GuiObject") then
+					obj.BackgroundTransparency = math.clamp(meta.baseTransparency + (1 - meta.baseTransparency) * uiTransparency, 0, 0.98)
+				end
+			end
+		end
+	end
+	for name, button in pairs(tabBtns) do
+		button.BackgroundColor3 = (name == activeTabName) and C.accent or C.row
+	end
+	if themeInfo and themeInfo.Parent then
+		themeInfo.Text = ("Preset: %s • Accent RGB: %d, %d, %d • Transparency: %d%%"):format(palette.name, selectedRGB.r, selectedRGB.g, selectedRGB.b, math.floor(uiTransparency * 100 + 0.5))
+	end
+end
+
+Button(pTheme, "สลับ Preset Theme", function()
+	activeTheme = (activeTheme % #themePalettes) + 1
+	customAccent = false
+	local color = themePalettes[activeTheme].accent
+	selectedRGB.r = math.floor(color.R * 255 + 0.5)
+	selectedRGB.g = math.floor(color.G * 255 + 0.5)
+	selectedRGB.b = math.floor(color.B * 255 + 0.5)
+	applyTheme()
+	for _, item in ipairs({{"Accent R", selectedRGB.r}, {"Accent G", selectedRGB.g}, {"Accent B", selectedRGB.b}}) do
+		if Ext.sliders[item[1]] then pcall(Ext.sliders[item[1]].set, item[2]) end
+	end
+	applyTheme()
+end)
+Slider(pTheme, "Accent R", 0, 255, selectedRGB.r, function(v)
+	selectedRGB.r, customAccent = v, true
+	applyTheme()
+end)
+Slider(pTheme, "Accent G", 0, 255, selectedRGB.g, function(v)
+	selectedRGB.g, customAccent = v, true
+	applyTheme()
+end)
+Slider(pTheme, "Accent B", 0, 255, selectedRGB.b, function(v)
+	selectedRGB.b, customAccent = v, true
+	applyTheme()
+end)
+Slider(pTheme, "UI Transparency", 0, 80, 0, function(v)
+	uiTransparency = v / 100
+	applyTheme()
+end)
+Button(pTheme, "Reset Theme / คืนค่าธีมเริ่มต้น", function()
+	activeTheme, customAccent, uiTransparency = 1, false, 0
+	selectedRGB = {r = 30, g = 150, b = 255}
+	applyTheme()
+	for _, item in ipairs({{"Accent R", 30}, {"Accent G", 150}, {"Accent B", 255}, {"UI Transparency", 0}}) do
+		if Ext.sliders[item[1]] then pcall(Ext.sliders[item[1]].set, item[2]) end
+	end
+	applyTheme()
+	notify("คืนค่าธีม Ocean เรียบร้อย")
+end)
+
+-- Module Manager
+local pModules = Page("Modules")
+Label(pModules, "Module Manager • เปิด/ปิดโมดูลแยกส่วน")
+new("TextLabel", {
+	Size = UDim2.new(1, -6, 0, 31),
+	BackgroundTransparency = 1,
+	Text = "ปุ่ม ON/OFF ใช้สวิตช์เดิมของ HUB; เมื่อปิดจะตัด Connection ที่ลงทะเบียนกับโมดูลนั้น",
+	TextColor3 = Color3.fromRGB(155, 170, 205),
+	Font = Enum.Font.GothamMedium,
+	TextSize = 10,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top
+}, pModules)
+local moduleSummary = new("TextLabel", {
+	Size = UDim2.new(1, -6, 0, 20),
+	BackgroundTransparency = 1,
+	Text = "โมดูล: --",
+	TextColor3 = C.accent,
+	Font = FONT,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, pModules)
+local moduleList = new("ScrollingFrame", {
+	Size = UDim2.new(1, -6, 0, 168),
+	BackgroundColor3 = C.panel,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
+}, pModules)
+corner(moduleList, 7)
+new("UIListLayout", {Padding = UDim.new(0, 4)}, moduleList)
+new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4)}, moduleList)
+local refreshModuleManager
+refreshModuleManager = function()
+	for _, child in ipairs(moduleList:GetChildren()) do
+		if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+	end
+	local names = {}
+	for name in pairs(Ext.toggles) do table.insert(names, name) end
+	table.sort(names, function(a, b) return tostring(a):lower() < tostring(b):lower() end)
+	local enabled = 0
+	for _, name in ipairs(names) do
+		local module = Ext.toggles[name]
+		local isOn = module and module.get and module.get() or false
+		if isOn then enabled += 1 end
+		local row = new("Frame", {Size = UDim2.new(1, -5, 0, 29), BackgroundColor3 = C.row, BorderSizePixel = 0}, moduleList)
+		corner(row, 5)
+		new("TextLabel", {
+			Position = UDim2.fromOffset(7, 0),
+			Size = UDim2.new(1, -65, 1, 0),
+			BackgroundTransparency = 1,
+			Text = tostring(name),
+			TextColor3 = C.text,
+			Font = Enum.Font.GothamMedium,
+			TextSize = 10,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd
+		}, row)
+		local toggleButton = new("TextButton", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -4, 0.5, 0),
+			Size = UDim2.fromOffset(48, 21),
+			BackgroundColor3 = isOn and C.accent or C.off,
+			Text = isOn and "ON" or "OFF",
+			TextColor3 = C.text,
+			Font = FONT,
+			TextSize = 10
+		}, row)
+		corner(toggleButton, 5)
+		toggleButton.MouseButton1Click:Connect(function()
+			local ok, err = pcall(function() module.set(not module.get()) end)
+			if not ok then recordDiagnostic("Module Manager: " .. tostring(name), err) end
+			task.defer(refreshModuleManager)
+		end)
+	end
+	moduleSummary.Text = ("โมดูลทั้งหมด %d • เปิดอยู่ %d"):format(#names, enabled)
+end
+Button(pModules, "Refresh Module List", refreshModuleManager)
+
+-- Diagnostics Center
+local pDiag = Page("Diagnostics")
+Label(pDiag, "Diagnostics Center • สถานะระบบและประวัติ Error")
+local diagSummary = new("TextLabel", {
+	Size = UDim2.new(1, -6, 0, 52),
+	BackgroundColor3 = C.row,
+	Text = "กำลังตรวจสอบระบบ...",
+	TextColor3 = C.text,
+	Font = Enum.Font.GothamMedium,
+	TextSize = 11,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, pDiag)
+corner(diagSummary, 7)
+local function updateDiagnosticsSummary()
+	local activeModules, totalModules = 0, 0
+	for _, module in pairs(Ext.toggles) do
+		totalModules += 1
+		if module.get and module.get() then activeModules += 1 end
+	end
+	local connected = 0
+	for _, c in ipairs(conns) do
+		local ok, isConnected = pcall(function() return c.Connected end)
+		if ok and isConnected then connected += 1 end
+	end
+	local uiCount = 0
+	for _, root in ipairs({gui, overlay}) do
+		for _ in ipairs(root:GetDescendants()) do uiCount += 1 end
+	end
+	diagSummary.Text = ("Status: OK\nModules: %d total / %d active\nTracked connections: %d active • UI objects: %d\nError history: %d/%d"):format(totalModules, activeModules, connected, uiCount, #diagnostics.errors, MAX_ERROR_HISTORY)
+end
+Button(pDiag, "ตรวจสอบระบบอีกครั้ง", updateDiagnosticsSummary)
+Button(pDiag, "Cleanup Resources / ปิดโมดูลและคืนค่าชั่วคราว", function()
+	local disabled = 0
+	for name, module in pairs(Ext.toggles) do
+		if module and module.get and module.get() then
+			module.set(false)
+			disabled += 1
+		end
+	end
+	-- Best-effort restoration for reversible state, even if a module callback previously failed.
+	for _, fn in ipairs({
+		function() setSpeed(false) end,
+		function() setFly(false) end,
+		function() setNoclip(false) end,
+		function() setInvisible(false) end,
+		function() setClickTeleport(false) end,
+		function() setPickupOnce(false) end,
+		function() setZoom(false) end,
+		function() stopSpirit() end,
+		function() setAntiLag(false) end,
+		function() restoreHitboxes() end,
+		function() proResetAll() end
+	}) do
+		local ok, err = pcall(fn)
+		if not ok then recordDiagnostic("Cleanup Resources", err) end
+	end
+	S.hitbox, S.hitboxP, S.proDetect = false, false, false
+	for player in pairs(proFlagged) do
+		if not player or player.Parent ~= Players then proFlagged[player] = nil end
+	end
+	for model in pairs(npcs) do
+		if not model or not model.Parent then npcs[model] = nil end
+	end
+	-- Prune dead entries from the central connection list without disconnecting live HUB services.
+	local kept, pruned = {}, 0
+	for _, c in ipairs(conns) do
+		local ok, connected = pcall(function() return c.Connected end)
+		if ok and connected then table.insert(kept, c) else pruned += 1 end
+	end
+	conns = kept
+	if refreshModuleManager then refreshModuleManager() end
+	updateDiagnosticsSummary()
+	notify(("Cleanup เสร็จ: ปิด %d โมดูล • เก็บ Connection เก่า %d รายการ"):format(disabled, pruned))
+end)
+Button(pDiag, "ล้างประวัติ Error", function()
+	table.clear(diagnostics.errors)
+	diagnostics.lastKey, diagnostics.lastAt = nil, 0
+	updateDiagnosticsSummary()
+	notify("ล้างประวัติ Error แล้ว")
+end)
+Label(pDiag, "Error History (ล่าสุดอยู่ด้านล่าง)")
+local errorList = new("ScrollingFrame", {
+	Size = UDim2.new(1, -6, 0, 112),
+	BackgroundColor3 = C.panel,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
+}, pDiag)
+corner(errorList, 7)
+new("UIListLayout", {Padding = UDim.new(0, 4)}, errorList)
+new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4)}, errorList)
+local lastRenderedErrorKey = nil
+local function refreshErrorHistory()
+	local newest = diagnostics.errors[#diagnostics.errors]
+	local key = newest and (newest.time .. newest.source .. newest.message) or "empty"
+	if key == lastRenderedErrorKey then return end
+	lastRenderedErrorKey = key
+	for _, child in ipairs(errorList:GetChildren()) do
+		if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+	end
+	if #diagnostics.errors == 0 then
+		new("TextLabel", {Size = UDim2.new(1, -5, 0, 28), BackgroundTransparency = 1, Text = "ยังไม่มี Error ใน Session นี้", TextColor3 = C.text, Font = Enum.Font.GothamMedium, TextSize = 10}, errorList)
+		return
+	end
+	local startIndex = math.max(1, #diagnostics.errors - 9)
+	for i = startIndex, #diagnostics.errors do
+		local entry = diagnostics.errors[i]
+		new("TextLabel", {
+			Size = UDim2.new(1, -5, 0, 46),
+			BackgroundColor3 = C.row,
+			Text = ("[%s] %s\n%s"):format(entry.time, entry.source, entry.message),
+			TextColor3 = Color3.fromRGB(255, 145, 160),
+			Font = Enum.Font.GothamMedium,
+			TextSize = 9,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Center
+		}, errorList)
+	end
+end
+
+task.spawn(function()
+	while gui.Parent do
+		if pages["Diagnostics"] and pages["Diagnostics"].Visible then
+			local ok, err = pcall(function() updateDiagnosticsSummary(); refreshErrorHistory() end)
+			if not ok then recordDiagnostic("Diagnostics refresh", err) end
+			task.wait(1.2)
+		else
+			task.wait(smartPerformanceEnabled and 2 or 1)
+		end
+	end
+end)
+
+-- Build the manager after every original + new toggle has registered.
+refreshModuleManager()
+refreshErrorHistory()
+applyTheme()
 
 -- Initial tab
 selectTab("สถานะ")
