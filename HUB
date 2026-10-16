@@ -17,7 +17,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V4.9"
+local VERSION = "V6.0"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -249,6 +249,23 @@ local function setAimLine(head)
 	aimDot.Position = UDim2.fromOffset(target.X, target.Y)
 	aimLine.Visible = true
 	aimDot.Visible = true
+end
+
+-- V5.0: เรียกฟังก์ชันของฟีเจอร์แบบกันพัง (error ไม่ลามไปส่วนอื่น)
+Ext.errs = {}
+Ext.log = {}
+Ext.blocked = {}
+Ext.safe = function(f, a, name, pg)
+	if a == true and pg and Ext.blocked[pg] then a = false end
+	local ok, e = pcall(f, a)
+	if not ok then
+		Ext.errs[name] = tostring(e)
+		Ext.log[#Ext.log + 1] = {os.date("%H:%M:%S"), tostring(name), tostring(e)}
+		if #Ext.log > 50 then table.remove(Ext.log, 1) end
+		notify("⚠ ข้อผิดพลาดใน: " .. tostring(name))
+		if Ext.onErr then pcall(Ext.onErr, name, pg) end
+	end
+	return ok
 end
 
 -- Main
@@ -604,12 +621,13 @@ local function Toggle(pg, text, cb, default)
 			}
 		):Play()
 
-		cb(on)
+		Ext.safe(cb, on, text, pg)
 
 		if Ext.changed then Ext.changed() end
 	end
 
 	Ext.toggles[text] = {
+		pg = pg,
 		set = set,
 		get = function() return on end
 	}
@@ -693,7 +711,7 @@ local function Slider(pg, text, min, max, def, cb)
 		fill.Size = UDim2.fromScale(rel, 1)
 		lbl.Text = text .. ": " .. v
 		cur = v
-		cb(v)
+		Ext.safe(cb, v, text, pg)
 
 		if Ext.changed then Ext.changed() end
 	end
@@ -704,7 +722,7 @@ local function Slider(pg, text, min, max, def, cb)
 		cur = v
 		fill.Size = UDim2.fromScale((v - min) / (max - min), 1)
 		lbl.Text = text .. ": " .. v
-		cb(v)
+		Ext.safe(cb, v, text, pg)
 
 		if Ext.changed then Ext.changed() end
 	end
@@ -755,7 +773,7 @@ local function Button(pg, text, cb)
 
 	corner(b, 5)
 
-	b.MouseButton1Click:Connect(cb)
+	b.MouseButton1Click:Connect(function() Ext.safe(cb, nil, text, pg) end)
 
 	return b
 end
@@ -5816,6 +5834,476 @@ function Ext.config()
 		end
 	end)
 end
+
+-- V6.0: จอวัดกราฟ + ศูนย์ตรวจระบบ + ดูฮิตบ็อกซ์จริง
+function Ext.v6()
+	local function lbl(pg, h)
+		return new("TextLabel", {
+			Size = UDim2.new(1, -6, 0, h), BackgroundTransparency = 1, Text = "",
+			TextColor3 = C.text, Font = FONT, TextSize = 12, TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top
+		}, pg)
+	end
+
+	-- ===== 1) จอวัดประสิทธิภาพ (หน้าต่างลอย ลากได้) =====
+	local pMon = Page("จอวัด")
+	local MON = "แสดงหน้าต่างกราฟลอย"
+	local N = 40
+	local H = {fps = {}, ping = {}}
+	Ext.hist = H
+
+	local win = new("Frame", {
+		Size = UDim2.fromOffset(230, 218), Position = UDim2.fromOffset(12, 120),
+		BackgroundColor3 = C.bg, Visible = false, Active = true
+	}, gui)
+	corner(win, 10)
+	stroke(win, C.accent, 1.2)
+	local bar = new("Frame", {Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1}, win)
+	new("TextLabel", {
+		Size = UDim2.new(1, -34, 1, 0), Position = UDim2.fromOffset(8, 0), BackgroundTransparency = 1,
+		Text = "จอวัดประสิทธิภาพ", TextColor3 = C.text, Font = FONT, TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, bar)
+	local x = new("TextButton", {
+		Size = UDim2.fromOffset(22, 18), Position = UDim2.new(1, -26, 0, 3),
+		BackgroundColor3 = Color3.fromRGB(190, 50, 60), Text = "X", TextColor3 = C.text, Font = FONT, TextSize = 12
+	}, bar)
+	corner(x, 5)
+	x.MouseButton1Click:Connect(function()
+		local t = Ext.toggles[MON]
+		if t then t.set(false) end
+	end)
+	makeDraggable(bar, win)
+
+	local function graph(y, h, title)
+		new("TextLabel", {
+			Size = UDim2.new(1, -12, 0, 14), Position = UDim2.fromOffset(8, y), BackgroundTransparency = 1,
+			Text = title, TextColor3 = C.text, Font = FONT, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left
+		}, win)
+		local box = new("Frame", {
+			Position = UDim2.fromOffset(6, y + 15), Size = UDim2.new(1, -12, 0, h), BackgroundColor3 = C.row, BorderSizePixel = 0
+		}, win)
+		corner(box, 6)
+		local bars = {}
+		for i = 1, N do
+			bars[i] = new("Frame", {
+				AnchorPoint = Vector2.new(0, 1), Position = UDim2.new((i - 1) / N, 1, 1, -1),
+				Size = UDim2.new(1 / N, -1, 0, 0), BorderSizePixel = 0
+			}, box)
+		end
+		return function(vals, max, colorFn)
+			local off = #vals - N
+			for i = 1, N do
+				local v = vals[off + i]
+				if v then
+					bars[i].Size = UDim2.new(1 / N, -1, math.clamp(v / max, 0.02, 1), 0)
+					bars[i].BackgroundColor3 = colorFn(v)
+				else
+					bars[i].Size = UDim2.new(1 / N, -1, 0, 0)
+				end
+			end
+		end
+	end
+	local drawFps = graph(26, 40, "FPS")
+	local drawPing = graph(86, 40, "Ping (ms)")
+	local st = new("TextLabel", {
+		Size = UDim2.new(1, -12, 0, 60), Position = UDim2.fromOffset(8, 148), BackgroundTransparency = 1, Text = "",
+		TextColor3 = C.text, Font = FONT, TextSize = 11, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top
+	}, win)
+
+	local G, Y, R = Color3.fromRGB(70, 210, 110), Color3.fromRGB(240, 200, 60), Color3.fromRGB(240, 70, 70)
+	local function fpsCol(v) return v >= 45 and G or (v >= 25 and Y or R) end
+	local function pingCol(v) return v <= 100 and G or (v <= 200 and Y or R) end
+
+	Label(pMon, "กราฟ FPS / Ping แบบเรียลไทม์")
+	Toggle(pMon, MON, function(v) win.Visible = v end)
+
+	-- ===== 2) ศูนย์ตรวจระบบ =====
+	local pDg = Page("ตรวจระบบ")
+	local sum = lbl(pDg, 84)
+	local logL = new("TextLabel", {
+		Size = UDim2.new(1, -6, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		Text = "", TextColor3 = C.text, Font = FONT, TextSize = 11, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top
+	}, pDg)
+
+	local function cnt(t) local n = 0 for _ in pairs(t) do n += 1 end return n end
+
+	local function refresh()
+		local on = 0
+		for _, t in pairs(Ext.toggles) do if t.get() then on += 1 end end
+		local mn = 999
+		for _, v in ipairs(H.fps) do if v < mn then mn = v end end
+		if mn == 999 then mn = 0 end
+		local mem = math.floor(Stats:GetTotalMemoryUsageMb())
+		local warn = {}
+		if mn < 20 then warn[#warn + 1] = "FPS ต่ำมาก" end
+		if mem > 1500 then warn[#warn + 1] = "หน่วยความจำสูง" end
+		if #conns > 400 then warn[#warn + 1] = "Connection เยอะผิดปกติ" end
+		if #Ext.log > 0 then warn[#warn + 1] = "มี Error " .. #Ext.log .. " รายการ" end
+		sum.Text = "สถานะ: " .. (#warn == 0 and "ปกติ ✔" or ("พบปัญหา ⚠ " .. table.concat(warn, ", ")))
+			.. "\nสวิตช์ที่เปิด: " .. on .. " | Connection: " .. #conns
+			.. "\nNPC ที่ติดตาม: " .. cnt(npcs) .. " | ฮิตบ็อกซ์ที่ถูกขยาย: " .. cnt(origSizes)
+			.. "\nFPS ต่ำสุด: " .. mn .. " | หน่วยความจำ: " .. mem .. " MB"
+		local out = {}
+		for i = math.max(1, #Ext.log - 7), #Ext.log do
+			local e = Ext.log[i]
+			out[#out + 1] = "[" .. e[1] .. "] " .. e[2] .. ": " .. string.sub(e[3], 1, 70)
+		end
+		logL.Text = #out > 0 and ("ประวัติ Error ล่าสุด:\n" .. table.concat(out, "\n")) or "ประวัติ Error: ไม่มี"
+	end
+
+	Button(pDg, "ตรวจระบบตอนนี้", function() refresh(); notify("ตรวจระบบเสร็จแล้ว") end)
+	Button(pDg, "Cleanup คืนทรัพยากร", function()
+		local before, freed = Stats:GetTotalMemoryUsageMb(), 0
+		for i = #conns, 1, -1 do
+			local ok, live = pcall(function() return conns[i].Connected end)
+			if not ok or not live then table.remove(conns, i); freed += 1 end
+		end
+		for m in pairs(npcs) do if not m.Parent then npcs[m] = nil; freed += 1 end end
+		for p in pairs(origSizes) do if not p.Parent then origSizes[p] = nil; freed += 1 end end
+		freed += #Ext.log
+		Ext.log, Ext.errs = {}, {}
+		collectgarbage("collect")
+		refresh()
+		notify("Cleanup แล้ว: ล้าง " .. freed .. " รายการ | " .. math.floor(before) .. " → " .. math.floor(Stats:GetTotalMemoryUsageMb()) .. " MB")
+	end)
+	Button(pDg, "ล้างประวัติ Error", function() Ext.log, Ext.errs = {}, {}; refresh() end)
+
+	-- ===== 3) ดูฮิตบ็อกซ์จริง (ผู้เล่น + NPC) =====
+	local pHb = Page("ดูฮิตบ็อกซ์")
+	local V = {p = false, n = false, all = false, range = 300}
+	local folder = new("Folder", {Name = "KTHitboxView"}, gui)
+	local ad = {}
+	local KEY = {Head = true, HumanoidRootPart = true, UpperTorso = true, Torso = true}
+
+	local function draw(ch, used, color, cp)
+		local root = ch:FindFirstChild("HumanoidRootPart")
+		if not root or not alive(ch) or (root.Position - cp).Magnitude > V.range then return end
+		for _, part in ipairs(ch:GetChildren()) do
+			if part:IsA("BasePart") and (V.all or KEY[part.Name]) then
+				used[part] = true
+				local o = origSizes[part]
+				local sz = o and o.size or part.Size -- ขนาดจริงก่อนถูกขยาย
+				local a = ad[part]
+				if not a then
+					ad[part] = new("BoxHandleAdornment", {
+						Adornee = part, AlwaysOnTop = true, ZIndex = 2, Transparency = 0.55, Size = sz,
+						Color3 = part.Name == "Head" and Color3.fromRGB(255, 60, 200) or color
+					}, folder)
+				elseif a.Size ~= sz then
+					a.Size = sz
+				end
+			end
+		end
+	end
+
+	Label(pHb, "แสดงกล่องฮิตบ็อกซ์ขนาดจริง (หัว=ชมพู)")
+	Toggle(pHb, "ดูฮิตบ็อกซ์ผู้เล่น (ขนาดจริง)", function(v) V.p = v end)
+	Toggle(pHb, "ดูฮิตบ็อกซ์ NPC (ขนาดจริง)", function(v) V.n = v end)
+	Toggle(pHb, "แสดงทุกชิ้นส่วนของตัวละคร", function(v) V.all = v end)
+	Slider(pHb, "ระยะดูฮิตบ็อกซ์", 50, 1000, 300, function(v) V.range = v end)
+
+	task.spawn(function()
+		while gui.Parent and not Ext.dead do
+			task.wait(0.2)
+			Ext.safe(function()
+				local used = {}
+				local cam = Workspace.CurrentCamera
+				if cam and (V.p or V.n) then
+					local cp = cam.CFrame.Position
+					if V.p then
+						for _, pl in ipairs(Players:GetPlayers()) do
+							if pl ~= LP and pl.Character then draw(pl.Character, used, Color3.fromRGB(60, 220, 255), cp) end
+						end
+					end
+					if V.n then
+						for m in pairs(npcs) do draw(m, used, Color3.fromRGB(255, 220, 60), cp) end
+					end
+				end
+				for part, a in pairs(ad) do
+					if not used[part] then a:Destroy(); ad[part] = nil end
+				end
+			end, nil, "ดูฮิตบ็อกซ์", pHb)
+		end
+	end)
+
+	-- ===== ลูปเก็บสถิติ (ทุก 0.5 วิ / วาดเฉพาะตอนมองเห็น) =====
+	local frames, tick, t0 = 0, 0, os.clock()
+	track(RunService.Heartbeat:Connect(function() frames += 1 end))
+	task.spawn(function()
+		while gui.Parent and not Ext.dead do
+			task.wait(0.5)
+			local now = os.clock()
+			local fps = math.floor(frames / math.max(now - t0, 0.01) + 0.5)
+			frames, t0 = 0, now
+			local ping = 0
+			pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+			table.insert(H.fps, fps)
+			table.insert(H.ping, ping)
+			if #H.fps > N then table.remove(H.fps, 1) end
+			if #H.ping > N then table.remove(H.ping, 1) end
+			tick += 1
+			if win.Visible then
+				drawFps(H.fps, 70, fpsCol)
+				drawPing(H.ping, 300, pingCol)
+				local s, mn, mx = 0, 9999, 0
+				for _, v in ipairs(H.fps) do s += v; mn = math.min(mn, v); mx = math.max(mx, v) end
+				local ic = 0
+				pcall(function() ic = Stats.InstanceCount end)
+				st.Text = "FPS: " .. fps .. " (เฉลี่ย " .. math.floor(s / #H.fps) .. " | ต่ำสุด " .. mn .. " | สูงสุด " .. mx .. ")"
+					.. "\nPing: " .. ping .. " ms\nหน่วยความจำ: " .. math.floor(Stats:GetTotalMemoryUsageMb()) .. " MB"
+					.. "\nอินสแตนซ์: " .. ic .. " | ผู้เล่น: " .. #Players:GetPlayers()
+			end
+			if pDg.Visible and tick % 4 == 0 then pcall(refresh) end
+		end
+	end)
+end
+Ext.v6()
+
+-- V5.0: ประหยัดอัจฉริยะ + สตูดิโอธีม + ตัวจัดการโมดูล
+function Ext.v5()
+	local ANTI = "ลดอาการแลค (Anti-Lag)"
+	local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+
+	local function mkLbl(pg, txt, h)
+		return new("TextLabel", {
+			Size = UDim2.new(1, -6, 0, h or 20), BackgroundTransparency = 1, Text = txt,
+			TextColor3 = C.text, Font = FONT, TextSize = 12, TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left
+		}, pg)
+	end
+
+	-- ===== 1) ระบบประหยัดทรัพยากรอัจฉริยะ =====
+	local pPerf = Page("ประหยัด")
+	local P = {fps = 60, auto = false, thr = 30, low = 0, ok = 0, byMe = false}
+	local info = mkLbl(pPerf, "กำลังวัดค่า...", 36)
+
+	Toggle(pPerf, "โหมดอัตโนมัติ (FPS ตกแล้วลดแลคให้เอง)", function(v)
+		P.auto = v
+		P.low, P.ok = 0, 0
+	end)
+	Slider(pPerf, "เกณฑ์ FPS ต่ำ", 10, 60, 30, function(v) P.thr = v end)
+	Button(pPerf, "ประหยัดสุด (เปิดลดแลค)", function()
+		local t = Ext.toggles[ANTI]
+		if t then P.byMe = false; t.set(true) end
+	end)
+	Button(pPerf, "กลับสู่ปกติ (ปิดลดแลค)", function()
+		local t = Ext.toggles[ANTI]
+		if t then P.byMe = false; t.set(false) end
+	end)
+	Button(pPerf, "ล้างหน่วยความจำ", function()
+		local before = Stats:GetTotalMemoryUsageMb()
+		collectgarbage("collect")
+		notify("ล้างแล้ว: " .. math.floor(before) .. " → " .. math.floor(Stats:GetTotalMemoryUsageMb()) .. " MB")
+	end)
+
+	-- วัดทุก 1 วิ / อัปเดตข้อความเฉพาะตอนหน้านี้เปิดอยู่ (ประหยัดทรัพยากร)
+	local acc, n = 0, 0
+	track(RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		n += 1
+		if acc < 1 then return end
+		P.fps = math.floor(n / acc + 0.5)
+		acc, n = 0, 0
+
+		if pPerf.Visible and main.Visible then
+			local ping = 0
+			pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+			info.Text = "FPS: " .. P.fps .. " | Ping: " .. ping .. " ms\nหน่วยความจำ: " .. math.floor(Stats:GetTotalMemoryUsageMb()) .. " MB"
+		end
+
+		if not P.auto then return end
+		if P.fps < P.thr then P.low += 1; P.ok = 0
+		elseif P.fps >= P.thr + 10 then P.ok += 1; P.low = 0
+		else P.low, P.ok = 0, 0 end
+
+		local t = Ext.toggles[ANTI]
+		if not t then return end
+		if P.low >= 3 and not t.get() then
+			P.byMe = true; t.set(true); notify("FPS ต่ำ → เปิดลดแลคอัตโนมัติ")
+		elseif P.byMe and P.ok >= 10 and t.get() then
+			P.byMe = false; t.set(false); notify("FPS ปกติ → ปิดลดแลคแล้ว")
+		end
+	end))
+
+	-- ===== 2) สตูดิโอธีม =====
+	local pTh = Page("ธีม")
+	local K = {"bg", "panel", "row", "accent", "off", "text"}
+	local orig = {}
+	for _, k in ipairs(K) do orig[k] = C[k] end
+
+	local function mk(h, s)
+		return {
+			bg = Color3.fromHSV(h, s, .17), panel = Color3.fromHSV(h, s, .2),
+			row = Color3.fromHSV(h, s, .26), off = Color3.fromHSV(h, s * .6, .36),
+			accent = Color3.fromHSV(h, s > 0 and .88 or 0, s > 0 and 1 or .6), text = orig.text
+		}
+	end
+
+	local FILE = "KTHub_Theme.json"
+	local function applyTheme(t, save)
+		local from = {}
+		for _, k in ipairs(K) do from[#from + 1] = {C[k], t[k]} end
+		local function sw(c)
+			for _, m in ipairs(from) do if c == m[1] then return m[2] end end
+		end
+		for _, d in ipairs(gui:GetDescendants()) do
+			if d:IsA("GuiObject") then
+				local a = sw(d.BackgroundColor3)
+				if a then d.BackgroundColor3 = a end
+				if d:IsA("TextLabel") or d:IsA("TextButton") then
+					local b = sw(d.TextColor3)
+					if b then d.TextColor3 = b end
+				end
+			elseif d:IsA("UIStroke") then
+				local a = sw(d.Color)
+				if a then d.Color = a end
+			end
+		end
+		local g = main:FindFirstChildOfClass("UIGradient")
+		if g then
+			g.Color = ColorSequence.new(t.bg:Lerp(Color3.new(1, 1, 1), .04), t.bg:Lerp(Color3.new(0, 0, 0), .4))
+		end
+		for _, k in ipairs(K) do C[k] = t[k] end
+		for name, p in pairs(pages) do
+			if p.Visible then selectTab(name) break end
+		end
+		if save and canFile then
+			pcall(function()
+				local o = {}
+				for _, k in ipairs(K) do
+					local c = t[k]
+					o[k] = {math.floor(c.R * 255 + .5), math.floor(c.G * 255 + .5), math.floor(c.B * 255 + .5)}
+				end
+				writefile(FILE, HttpService:JSONEncode(o))
+			end)
+		end
+	end
+
+	local presets = {
+		{"น้ำเงิน (เดิม)", orig}, {"ม่วง", mk(.75, .55)}, {"เขียว", mk(.38, .6)},
+		{"แดง", mk(.99, .6)}, {"ชมพู", mk(.9, .5)}, {"ส้ม", mk(.07, .65)},
+		{"ฟ้าเขียว", mk(.5, .6)}, {"ดำเทา", mk(0, 0)}
+	}
+	for _, p in ipairs(presets) do
+		Button(pTh, "ธีม" .. p[1], function() applyTheme(p[2], true); notify("ใช้ธีม" .. p[1]) end)
+	end
+	Button(pTh, "สุ่มธีม", function() applyTheme(mk(math.random(), .4 + math.random() * .3), true) end)
+
+	local rgb = {30, 150, 255}
+	Slider(pTh, "สีหลัก แดง", 0, 255, 30, function(v) rgb[1] = v end)
+	Slider(pTh, "สีหลัก เขียว", 0, 255, 150, function(v) rgb[2] = v end)
+	Slider(pTh, "สีหลัก น้ำเงิน", 0, 255, 255, function(v) rgb[3] = v end)
+	Button(pTh, "ใช้สีหลักที่ปรับเอง", function()
+		local t = {}
+		for _, k in ipairs(K) do t[k] = C[k] end
+		t.accent = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+		applyTheme(t, true)
+	end)
+
+	if canFile then
+		pcall(function()
+			if isfile(FILE) then
+				local o, t = HttpService:JSONDecode(readfile(FILE)), {}
+				for _, k in ipairs(K) do t[k] = Color3.fromRGB(o[k][1], o[k][2], o[k][3]) end
+				applyTheme(t, false)
+			end
+		end)
+	end
+
+	-- ===== 3) ตัวจัดการโมดูล =====
+	local pMod = Page("โมดูล")
+	local stat = mkLbl(pMod, "", 20)
+	local M, order, autoOff = {}, {}, true
+	local SKIPM = {["ตั้งค่า"] = true, ["โมดูล"] = true, ["ประหยัด"] = true, ["ธีม"] = true, ["สถานะ"] = true, ["จอวัด"] = true, ["ตรวจระบบ"] = true}
+	Ext.blocked = {}
+
+	local function count()
+		local on, all = 0, #order
+		for _, nm in ipairs(order) do if M[nm].on then on += 1 end end
+		stat.Text = "เปิดอยู่ " .. on .. "/" .. all .. " โมดูล"
+	end
+
+	local function setMod(nm, on)
+		local m, pg, btn = M[nm], pages[nm], tabBtns[nm]
+		if not (m and pg) then return end
+		m.on = on
+		Ext.blocked[pg] = not on or nil
+		if not on then
+			m.closing = true
+			for _, t in pairs(Ext.toggles) do
+				if t.pg == pg and t.get() then pcall(t.set, false) end
+			end
+			for _, c in ipairs(m.conns) do pcall(function() c:Disconnect() end) end
+			m.conns = {}
+			m.closing = false
+			if pg.Visible then selectTab("สถานะ") end
+		end
+		btn.Visible = on
+		count()
+	end
+
+	-- ให้โมดูลลงทะเบียน connection ไว้ล้างอัตโนมัติ: Ext.modConn("ชื่อหน้า", conn)
+	Ext.modConn = function(nm, c)
+		if M[nm] then table.insert(M[nm].conns, c) end
+		return c
+	end
+
+	-- ข้อผิดพลาดในโมดูลไหน → ปิดเฉพาะโมดูลนั้น ไม่ลามไปส่วนอื่น
+	Ext.onErr = function(_, pg)
+		for nm, m in pairs(M) do
+			if pages[nm] == pg and autoOff and m.on and not m.closing then
+				m.broken = true
+				task.defer(function()
+					local t = Ext.toggles["โมดูล: " .. nm]
+					if t then t.set(false) end
+				end)
+			end
+		end
+	end
+
+	for _, b in ipairs(sidebar:GetChildren()) do
+		if b:IsA("TextButton") and not SKIPM[b.Text] then
+			local nm = b.Text
+			M[nm] = {on = true, conns = {}}
+			table.insert(order, nm)
+		end
+	end
+
+	Toggle(pMod, "ปิดโมดูลที่พังอัตโนมัติ", function(v) autoOff = v end, true)
+	Button(pMod, "เปิดโมดูลที่ถูกปิดเพราะพัง", function()
+		for _, nm in ipairs(order) do
+			if M[nm].broken then
+				M[nm].broken = false
+				Ext.errs[nm] = nil
+				local t = Ext.toggles["โมดูล: " .. nm]
+				if t then t.set(true) end
+			end
+		end
+	end)
+	Button(pMod, "เปิดทุกโมดูล", function()
+		for _, nm in ipairs(order) do local t = Ext.toggles["โมดูล: " .. nm]; if t then t.set(true) end end
+	end)
+	Button(pMod, "ปิดทุกโมดูล", function()
+		for _, nm in ipairs(order) do local t = Ext.toggles["โมดูล: " .. nm]; if t then t.set(false) end end
+	end)
+	for _, nm in ipairs(order) do
+		Toggle(pMod, "โมดูล: " .. nm, function(v) setMod(nm, v) end, true)
+	end
+	count()
+
+	-- ล้าง connection ของทุกโมดูลตอนปิด HUB
+	table.insert(Ext.cleanups, function()
+		for _, m in pairs(M) do
+			for _, c in ipairs(m.conns) do pcall(function() c:Disconnect() end) end
+			m.conns = {}
+		end
+	end)
+end
+Ext.v5()
+
 
 Ext.config()
 
