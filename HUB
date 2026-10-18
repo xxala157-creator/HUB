@@ -1,5 +1,5 @@
 --// ขอโทษ HUB V4.9
--- V4.9: Immortality test toggle, colorful live status HUD, script viewer
+-- V4.9: Immortality test toggle, colorful live status HUD, key-gated script viewer
 -- หมายเหตุ: การป้องกันความเสียหาย/อมตะจริงต้องตรวจสอบจากเซิร์ฟเวอร์ของเกม
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -5225,7 +5225,7 @@ end)
 
 
 
--- V4.9: ตัวแกะสคริป
+-- V4.9: ตัวแกะสคริป (ต้องใส่ Secret Key ก่อนใช้งาน)
 -- DECODE ไม่รันโค้ดใด ๆ มีเพียงปุ่ม RUN (กดยืนยัน 2 ครั้ง) ที่รัน
 function Ext.viewer()
 	local vCard = new("Frame", {
@@ -5239,7 +5239,7 @@ function Ext.viewer()
 		Size = UDim2.new(1, -20, 0, 18),
 		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
-		Text = "ตัวแกะสคริป V4.9 • DECODE / Base64 / string.char / URL",
+		Text = "ตัวแกะสคริป V4.9 • KEY LOCK / DECODE / Base64 / string.char / URL",
 		TextColor3 = C.accent,
 		Font = FONT,
 		TextSize = 13,
@@ -5354,6 +5354,121 @@ function Ext.viewer()
 	local copyBtn = vButton("COPY", 2, Color3.fromRGB(35, 145, 100))
 	local clearBtn = vButton("CLEAR", 3, C.off)
 
+	-- Client-side UI gate only. The key is embedded in this script and is not strong access control.
+	local VIEWER_KEY = "alL@A75056B@zdM"
+	local viewerUnlocked = false
+	vInput.Parent.Visible = false
+	vOutput.Parent.Visible = false
+	sourceLabel.Visible = false
+	vStatus.Visible = false
+	decodeBtn.Visible = false
+	runBtn.Visible = false
+	copyBtn.Visible = false
+	clearBtn.Visible = false
+
+	local lockPanel = new("Frame", {
+		Name = "ScriptViewerKeyLock",
+		Position = UDim2.fromOffset(10, 28),
+		Size = UDim2.new(1, -20, 0, 286),
+		BackgroundColor3 = Color3.fromRGB(17, 24, 62),
+		BorderSizePixel = 0,
+		ZIndex = 20
+	}, vCard)
+	corner(lockPanel, 10)
+	stroke(lockPanel, Color3.fromRGB(145, 105, 255), 1.2)
+	new("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(18, 28, 72), Color3.fromRGB(34, 20, 74)),
+		Rotation = 35
+	}, lockPanel)
+	new("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 28),
+		Position = UDim2.fromOffset(10, 22),
+		BackgroundTransparency = 1,
+		Text = "🔒 ล็อกตัวแกะสคริป",
+		TextColor3 = Color3.fromRGB(190, 170, 255),
+		Font = FONT,
+		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 21
+	}, lockPanel)
+	new("TextLabel", {
+		Size = UDim2.new(1, -24, 0, 42),
+		Position = UDim2.fromOffset(12, 55),
+		BackgroundTransparency = 1,
+		Text = "ใส่ Secret Key เพื่อเปิดใช้ DECODE / COPY / RUN\nหมายเหตุ: เป็นเพียงล็อกหน้า UI ของสคริปต์ฝั่งเครื่อง",
+		TextColor3 = Color3.fromRGB(205, 210, 238),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 21
+	}, lockPanel)
+	local keyBox = new("TextBox", {
+		Position = UDim2.new(0, 20, 0, 112),
+		Size = UDim2.new(1, -40, 0, 36),
+		BackgroundColor3 = Color3.fromRGB(9, 14, 39),
+		Text = "",
+		PlaceholderText = "กรอก Secret Key",
+		PlaceholderColor3 = Color3.fromRGB(120, 135, 178),
+		TextColor3 = Color3.fromRGB(245, 245, 255),
+		ClearTextOnFocus = false,
+		Font = Enum.Font.Code,
+		TextSize = 13,
+		ZIndex = 21
+	}, lockPanel)
+	corner(keyBox, 7)
+	stroke(keyBox, Color3.fromRGB(88, 105, 190), 1)
+	local unlockBtn = new("TextButton", {
+		Position = UDim2.new(0, 20, 0, 158),
+		Size = UDim2.new(1, -40, 0, 34),
+		BackgroundColor3 = Color3.fromRGB(112, 78, 235),
+		Text = "UNLOCK",
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = FONT,
+		TextSize = 13,
+		AutoButtonColor = true,
+		ZIndex = 21
+	}, lockPanel)
+	corner(unlockBtn, 7)
+	local lockStatus = new("TextLabel", {
+		Position = UDim2.new(0, 16, 0, 205),
+		Size = UDim2.new(1, -32, 0, 28),
+		BackgroundTransparency = 1,
+		Text = "WAITING FOR KEY • V4.9",
+		TextColor3 = Color3.fromRGB(115, 220, 255),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
+		TextWrapped = true,
+		ZIndex = 21
+	}, lockPanel)
+	local function setLockStatus(message, color)
+		lockStatus.Text = tostring(message)
+		lockStatus.TextColor3 = color or Color3.fromRGB(115, 220, 255)
+	end
+	unlockBtn.Activated:Connect(function()
+		if keyBox.Text == VIEWER_KEY then
+			viewerUnlocked = true
+			lockPanel.Visible = false
+			vInput.Parent.Visible = true
+			vOutput.Parent.Visible = true
+			sourceLabel.Visible = true
+			vStatus.Visible = true
+			decodeBtn.Visible = true
+			runBtn.Visible = true
+			copyBtn.Visible = true
+			clearBtn.Visible = true
+			keyBox.Text = ""
+			notify("ปลดล็อกตัวแกะสคริป V4.9 แล้ว")
+		else
+			keyBox.Text = ""
+			setLockStatus("คีย์ไม่ถูกต้อง • ลองอีกครั้ง", Color3.fromRGB(255, 105, 125))
+		end
+	end)
+	keyBox.FocusLost:Connect(function(enterPressed)
+		if enterPressed and not viewerUnlocked then
+			unlockBtn:Activate()
+		end
+	end)
 
 	------------------------------------------------------------
 	-- Helpers
@@ -5567,6 +5682,10 @@ function Ext.viewer()
 	end
 
 	local function analyze()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		if busy then return end
 
 		disarm()
@@ -5636,6 +5755,10 @@ function Ext.viewer()
 	end
 
 	local function runOutput()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		local text = vOutput.Text
 
 		if trim(text) == "" then
@@ -5701,6 +5824,10 @@ function Ext.viewer()
 	runBtn.MouseButton1Click:Connect(runOutput)
 
 	copyBtn.MouseButton1Click:Connect(function()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		if vOutput.Text == "" then
 			setVStatus("ERROR | ไม่มี Source ให้คัดลอก", SC_ERR)
 			return
@@ -5723,6 +5850,10 @@ function Ext.viewer()
 	end)
 
 	clearBtn.MouseButton1Click:Connect(function()
+		if not viewerUnlocked then
+			setLockStatus("ปลดล็อกด้วย Secret Key ก่อน", Color3.fromRGB(255, 105, 125))
+			return
+		end
 		disarm()
 		vInput.Text = ""
 		vOutput.Text = ""
