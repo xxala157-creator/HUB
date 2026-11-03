@@ -1,5 +1,6 @@
---// ขอโทษ HUB V6.3
--- V6.3: ย้ายเซิร์ฟด้วยลิงก์, UI บินเล็กลง, ทะลุกำแพงทะลุหมด + ไม่ทะลุพื้น, ESP เส้นตรงผู้เล่น
+--// ขอโทษ HUB V6.4
+-- V6.4: ลบแท็บตรวจจับโปร, ล็อคเป้าเลือกผู้เล่นที่ไม่ล็อค, FOV สูงสุด 600, แก้ปุ่มดาวน์โหลดตัวแกะสคริป, ลบ UI สถานะเรียลไทม์
+-- V6.4: ย้ายเซิร์ฟด้วยลิงก์, UI บินเล็กลง, ทะลุกำแพงทะลุหมด + ไม่ทะลุพื้น, ESP เส้นตรงผู้เล่น
 -- V6.2: ปุ่มปิด UI บิน, ทะลุกำแพง/พื้นรวมเป็นระบบเดียว, ESP เส้นหาทุกคน, ตัวแกะสคริปอัปเกรด + ปุ่มดาวน์โหลด
 -- หมายเหตุ: การป้องกันความเสียหาย/อมตะจริงต้องตรวจสอบจากเซิร์ฟเวอร์ของเกม
 local Players = game:GetService("Players")
@@ -18,7 +19,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V6.3"
+local VERSION = "V6.4"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -39,7 +40,7 @@ local S = {
 	fly = false, flyVal = 60,
 	ijump = false,
 	espP = false, espN = false,
-	lockP = false, lockN = false, teamCheck = true, fov = 150,
+	lockP = false, lockN = false, noLock = {}, fov = 150,
 	lockPStr = 50, lockNStr = 50, lockPPart = 1, lockNPart = 1,
 	hitbox = false, hitSize = 10,
 	hitboxP = false, hitSizeP = 8, hitTeam = true,
@@ -55,20 +56,10 @@ local S = {
 	espLine = false,
 	antiLag = false,
 
-	-- ตรวจจับโปร
-	proDetect = false,
-	proEsp = true,
-	proNotify = true,
-	proSticky = true,
-	proSpeedMul = 230,
-	proFlyTime = 3,
-
 	-- V6.2
 	espLines = false, espLineFrom = 1, -- 1=ล่าง 2=กลาง 3=บน
 }
 
--- รายชื่อคนที่ตรวจเจอว่าโปร [Player] = {fly=, speed=, last=}
-local proFlagged = {}
 
 local C = {
 	bg = Color3.fromRGB(12, 16, 42),
@@ -1089,7 +1080,7 @@ local function setFly(v)
 	if Ext.flyRefresh then Ext.flyRefresh() end
 end
 
--- UI บินแยกเล็ก ๆ (V6.3 เล็กลง): เปิด/ปิดการบิน + ปรับความเร็ว ลากที่แถบหัวย้ายได้
+-- UI บินแยกเล็ก ๆ (V6.4 เล็กลง): เปิด/ปิดการบิน + ปรับความเร็ว ลากที่แถบหัวย้ายได้
 do
 	local panel = new("Frame", {
 		Name = "KTFlyUI",
@@ -1263,7 +1254,7 @@ do
 				local sp = root and cam:WorldToViewportPoint(root.Position)
 				if sp and sp.Z > 0 then
 					local d = Vector2.new(sp.X, sp.Y) - o
-					f.BackgroundColor3 = (proFlagged[p] and S.proDetect) and Color3.fromRGB(255, 60, 60) or C.accent
+					f.BackgroundColor3 = C.accent
 					f.Position = UDim2.fromOffset(o.X + d.X / 2, o.Y + d.Y / 2)
 					f.Size = UDim2.fromOffset(d.Magnitude, 1.5)
 					f.Rotation = math.deg(math.atan2(d.Y, d.X))
@@ -1350,9 +1341,7 @@ task.spawn(function()
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= LP and p.Character then
 
-					if proFlagged[p] and S.proDetect and S.proEsp then
-						clearESP(p.Character)
-					elseif alive(p.Character) then
+					if alive(p.Character) then
 						applyESP(
 							p.Character,
 							Color3.fromRGB(0, 170, 255),
@@ -1432,11 +1421,7 @@ RunService:BindToRenderStep(
 		if S.lockP then
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= LP and p.Character then
-					local sameTeam = S.teamCheck
-						and LP.Team ~= nil
-						and p.Team == LP.Team
-
-					if not sameTeam then
+					if not S.noLock[p.UserId] then
 						consider(p.Character, S.lockPPart, S.lockPStr)
 					end
 				end
@@ -3293,51 +3278,7 @@ Button(
 
 
 -- =====================================================
--- ตรวจจับโปร (บินนานผิดปกติ / วิ่งเร็วผิดปกติ)
--- ไม่นับระบบที่เกมมีให้: รถ/ที่นั่ง, วาร์ปของเกม, กระเด็น/ล้ม,
--- ว่ายน้ำ/ปีนบันได, พื้นเคลื่อนที่, ระบบบิน/บูสต์ที่เซิร์ฟเวอร์สร้างให้
--- =====================================================
-local PRO_STEP = 0.25
-
--- สถานะที่เกมคุมตัวละครเอง: ข้ามทั้งการตรวจบินและวิ่งเร็ว
-local PRO_SKIP_ALL = {
-	[Enum.HumanoidStateType.Dead] = true,
-	[Enum.HumanoidStateType.Seated] = true,
-	[Enum.HumanoidStateType.Swimming] = true,
-	[Enum.HumanoidStateType.Climbing] = true,
-	[Enum.HumanoidStateType.Flying] = true,
-}
-
--- สถานะล้ม/กระเด็น/สตัน: ข้ามเฉพาะการตรวจวิ่งเร็ว
--- (ไม่ข้ามตอนตรวจบิน เพราะสคริปต์บินหลายตัวใช้ PlatformStand)
-local PRO_SKIP_SPEED = {
-	[Enum.HumanoidStateType.Ragdoll] = true,
-	[Enum.HumanoidStateType.FallingDown] = true,
-	[Enum.HumanoidStateType.PlatformStanding] = true,
-	[Enum.HumanoidStateType.Physics] = true,
-}
-
-local PRO_RED = Color3.fromRGB(255, 40, 40)
-
-local proTrack = {}
-
--- ตัวแปรของ UI (กำหนดค่าตอนสร้างหน้า)
-local proCountLabel, proListFrame
 local svCount, svSlots, svList
-
-local function proReason(f)
-	local t = {}
-
-	if f.fly then
-		t[#t + 1] = "บินนาน"
-	end
-
-	if f.speed then
-		t[#t + 1] = "วิ่งเร็ว"
-	end
-
-	return table.concat(t, " + ")
-end
 
 -- แท็บเซิฟ: จำนวนคน + รายชื่อ
 local function updateServerInfo()
@@ -3374,7 +3315,7 @@ local function refreshServerList()
 	end
 
 	for _, p in ipairs(Players:GetPlayers()) do
-		local f = proFlagged[p]
+		local f = nil
 		local txt = "  " .. p.DisplayName .. " (@" .. p.Name .. ")"
 
 		if p == LP then
@@ -3398,395 +3339,6 @@ local function refreshServerList()
 	end
 end
 
--- แท็บตรวจจับโปร: จำนวน + รายชื่อคนโปร
-local function proRefreshUI()
-	local n = 0
-
-	for _ in pairs(proFlagged) do
-		n = n + 1
-	end
-
-	if proCountLabel and proCountLabel.Parent then
-		proCountLabel.Text = "ตรวจพบโปร: " .. n .. " คน"
-	end
-
-	if proListFrame and proListFrame.Parent then
-		for _, c in ipairs(proListFrame:GetChildren()) do
-			if c:IsA("TextLabel") then
-				c:Destroy()
-			end
-		end
-
-		for p, f in pairs(proFlagged) do
-			new("TextLabel", {
-				Size = UDim2.new(1, -8, 0, 24),
-				BackgroundColor3 = C.off,
-				Text = "  " .. p.DisplayName .. " (@" .. p.Name .. ") • " .. proReason(f),
-				TextColor3 = Color3.fromRGB(255, 90, 90),
-				Font = FONT,
-				TextSize = 12,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextTruncate = Enum.TextTruncate.AtEnd
-			}, proListFrame)
-		end
-	end
-
-	refreshServerList()
-end
-
--- ESP คนโปร (สีแดง + ขึ้นว่าโปร)
-local function proClearESP(char)
-	local hl = char:FindFirstChild("_ProHL")
-
-	if hl then
-		hl:Destroy()
-	end
-end
-
-local function proApplyESP(char, name, reason)
-	local hl = char:FindFirstChild("_ProHL")
-
-	if not hl then
-		hl = new("Highlight", {
-			Name = "_ProHL",
-			FillColor = PRO_RED,
-			OutlineColor = PRO_RED,
-			FillTransparency = 0.35,
-			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-			Adornee = char
-		}, char)
-
-		local head = char:FindFirstChild("Head")
-
-		if head then
-			local bb = new("BillboardGui", {
-				Name = "_ProTag",
-				Size = UDim2.fromOffset(180, 36),
-				StudsOffset = Vector3.new(0, 3.2, 0),
-				AlwaysOnTop = true,
-				Adornee = head
-			}, hl)
-
-			new("TextLabel", {
-				Name = "Txt",
-				Size = UDim2.fromScale(1, 1),
-				BackgroundTransparency = 1,
-				Text = "",
-				TextColor3 = PRO_RED,
-				Font = FONT,
-				TextSize = 14,
-				TextWrapped = true,
-				TextStrokeTransparency = 0.2
-			}, bb)
-		end
-	end
-
-	local bb = hl:FindFirstChild("_ProTag")
-	local txt = bb and bb:FindFirstChild("Txt")
-
-	if txt then
-		txt.Text = name .. "\nโปร • " .. reason
-	end
-end
-
-local function proResetAll()
-	for p in pairs(proFlagged) do
-		proFlagged[p] = nil
-	end
-
-	for p in pairs(proTrack) do
-		proTrack[p] = nil
-	end
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p.Character then
-			proClearESP(p.Character)
-		end
-	end
-
-	proRefreshUI()
-end
-
-local function proFlag(p, kind)
-	local f = proFlagged[p]
-
-	if not f then
-		f = {fly = false, speed = false}
-		proFlagged[p] = f
-	end
-
-	local was = f[kind]
-
-	f[kind] = true
-	f.last = os.clock()
-
-	if not was then
-		if S.proNotify then
-			notify(
-				"ตรวจพบโปร: " .. p.DisplayName
-				.. " (" .. (kind == "fly" and "บินนาน" or "วิ่งเร็ว") .. ")"
-			)
-		end
-
-		proRefreshUI()
-	end
-end
-
--- ตัวขับเคลื่อนที่ "เซิร์ฟเวอร์" สร้างให้ตัวละคร (เช่น ระบบบิน/บูสต์ของเกม) จะมองเห็นได้ทุกเครื่อง
--- แต่ถ้าเกมสร้างจาก LocalScript ฝั่งเครื่องผู้เล่นเอง เราจะมองไม่เห็น และแยกจากโปรไม่ได้
-local function proHasGameMover(char)
-	for _, d in ipairs(char:GetDescendants()) do
-		if d:IsA("BodyMover")
-			or d:IsA("LinearVelocity")
-			or d:IsA("VectorForce")
-			or d:IsA("AlignPosition") then
-			return true
-		end
-	end
-
-	return false
-end
-
-local proRay = RaycastParams.new()
-proRay.FilterType = Enum.RaycastFilterType.Exclude
-
--- ยิงเรย์ลงจากตัวละคร: คืนค่า (ระยะถึงพื้น, ชิ้นส่วนพื้น) หรือ nil ถ้าไม่เจอ
--- ใช้แทนการเชื่อ FloorMaterial อย่างเดียว เพราะค่านี้ของผู้เล่นคนอื่นอาจไม่ตรงความจริง
-local function proProbe(char, root)
-	proRay.FilterDescendantsInstances = {char}
-
-	local hit = Workspace:Raycast(
-		root.Position,
-		Vector3.new(0, -40, 0),
-		proRay
-	)
-
-	if hit then
-		return hit.Distance, hit.Instance
-	end
-
-	return nil, nil
-end
-
-local function proSample(p, now)
-	local char = p.Character
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-
-	local st = proTrack[p]
-
-	if not st then
-		st = {
-			speedStreak = 0,
-			flyStreak = 0,
-			ys = {},
-			grace = 0
-		}
-		proTrack[p] = st
-	end
-
-	local function clearStreaks()
-		st.speedStreak = 0
-		st.flyStreak = 0
-		st.airStart = nil
-		st.ys = {}
-	end
-
-	if not (char and hum and root) or hum.Health <= 0 then
-		clearStreaks()
-		st.char = nil
-		st.lastPos = nil
-		return
-	end
-
-	-- เกิดใหม่/เปลี่ยนตัวละคร: เว้นช่วงให้ก่อน
-	if st.char ~= char then
-		st.char = char
-		st.lastPos = nil
-		clearStreaks()
-		st.grace = now + 3
-	end
-
-	local pos = root.Position
-	local lastPos, lastT = st.lastPos, st.lastT
-
-	st.lastPos, st.lastT = pos, now
-
-	if not lastPos then
-		return
-	end
-
-	local dt = now - lastT
-
-	if dt <= 0 then
-		return
-	end
-
-	local delta = pos - lastPos
-
-	-- วาร์ป/ย้ายจุดของเกม: ข้ามและเว้นช่วง
-	if delta.Magnitude > 150 then
-		clearStreaks()
-		st.grace = now + 2.5
-		return
-	end
-
-	-- เกมควบคุมตัวละครอยู่ (รถ, ที่นั่ง, ว่ายน้ำ, ปีน ฯลฯ)
-	local okS, state = pcall(function()
-		return hum:GetState()
-	end)
-
-	if hum.Sit
-		or hum.SeatPart
-		or root.Anchored
-		or (okS and PRO_SKIP_ALL[state]) then
-
-		clearStreaks()
-		st.grace = now + 1.5
-		return
-	end
-
-	if now < st.grace then
-		clearStreaks()
-		return
-	end
-
-	-- อยู่บนพื้นไหม: เรย์ใกล้พื้น หรือ FloorMaterial บอกว่าไม่ใช่อากาศ
-	local standDist = hum.HipHeight + 5
-	local dist, ground = proProbe(char, root)
-	local nearGround = dist ~= nil and dist <= standDist
-	local grounded = nearGround or hum.FloorMaterial ~= Enum.Material.Air
-
-	-- ===== วิ่งเร็วผิดปกติ =====
-	-- เทียบกับ WalkSpeed ที่เซิร์ฟเวอร์ตั้งไว้ (เกมบูสต์เองจะถูกนับเป็นปกติ)
-	local flat = Vector3.new(delta.X, 0, delta.Z).Magnitude / dt
-	local allowed = math.max(hum.WalkSpeed, 16) * (S.proSpeedMul / 100)
-	local skipSpeed = okS and PRO_SKIP_SPEED[state]
-
-	if grounded and not skipSpeed and flat > allowed then
-		local gv = ground and ground.AssemblyLinearVelocity
-		local onMoving = gv
-			and Vector3.new(gv.X, 0, gv.Z).Magnitude > 2
-
-		-- ยืนบนพื้น/สายพาน/แท่นที่เคลื่อนที่ หรือมีตัวขับเคลื่อนของเกม = ไม่นับ
-		if onMoving or proHasGameMover(char) then
-			st.speedStreak = 0
-		else
-			st.speedStreak = st.speedStreak + 1
-		end
-	else
-		st.speedStreak = 0
-	end
-
-	if st.speedStreak >= 5 then
-		proFlag(p, "speed")
-	end
-
-	-- ===== บินนานผิดปกติ =====
-	-- ลอยอยู่กลางอากาศนานเกินกำหนด และไม่ได้ตกลงตามแรงโน้มถ่วง
-	if not grounded then
-		if not st.airStart then
-			st.airStart = now
-			st.ys = {}
-		end
-
-		local ys = st.ys
-
-		ys[#ys + 1] = {now, pos.Y}
-
-		while #ys > 0 and now - ys[1][1] > 1.2 do
-			table.remove(ys, 1)
-		end
-
-		local g = Workspace.Gravity
-
-		-- แมพแรงโน้มถ่วงต่ำ = ระบบของเกม ไม่ตรวจ
-		if g >= 60 then
-			local need = S.proFlyTime * math.sqrt(196.2 / g)
-
-			if now - st.airStart >= need and #ys >= 3 then
-				local span = ys[#ys][1] - ys[1][1]
-
-				if span >= 0.7 then
-					local vy = (ys[#ys][2] - ys[1][2]) / span
-
-					if vy > -(g * 0.15) and not proHasGameMover(char) then
-						st.flyStreak = st.flyStreak + 1
-					else
-						st.flyStreak = 0
-					end
-				end
-			end
-
-			if st.flyStreak >= 2 then
-				proFlag(p, "fly")
-			end
-		end
-	else
-		st.airStart = nil
-		st.ys = {}
-		st.flyStreak = 0
-	end
-end
-
--- ลูปตรวจ
-task.spawn(function()
-	while gui.Parent do
-		if S.proDetect then
-			local now = os.clock()
-
-			for _, p in ipairs(Players:GetPlayers()) do
-				if p ~= LP then
-					pcall(proSample, p, now)
-				end
-			end
-
-			-- ถ้าปิด "จำคนโปรไว้ตลอด" ให้หมดสถานะเองหลัง 20 วินาที
-			if not S.proSticky then
-				local changed = false
-
-				for p, f in pairs(proFlagged) do
-					if f.last and now - f.last > 20 then
-						proFlagged[p] = nil
-						changed = true
-
-						if p.Character then
-							proClearESP(p.Character)
-						end
-					end
-				end
-
-				if changed then
-					proRefreshUI()
-				end
-			end
-		end
-
-		task.wait(PRO_STEP)
-	end
-end)
-
--- ลูป ESP คนโปร
-task.spawn(function()
-	while gui.Parent do
-		for _, p in ipairs(Players:GetPlayers()) do
-			local char = p.Character
-
-			if char then
-				local f = proFlagged[p]
-
-				if S.proDetect and S.proEsp and f and alive(char) then
-					proApplyESP(char, p.DisplayName, proReason(f))
-				else
-					proClearESP(char)
-				end
-			end
-		end
-
-		task.wait(0.5)
-	end
-end)
-
 -- อัปเดตจำนวนคนในเซิฟทุกวินาที + ตอนมีคนเข้า/ออก
 task.spawn(function()
 	while gui.Parent do
@@ -3803,12 +3355,10 @@ track(Players.PlayerAdded:Connect(function()
 end))
 
 track(Players.PlayerRemoving:Connect(function(p)
-	proTrack[p] = nil
-	proFlagged[p] = nil
 
 	task.defer(function()
 		updateServerInfo()
-		proRefreshUI()
+
 	end)
 end))
 
@@ -3846,104 +3396,7 @@ new("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left
 }, statusHeader)
 
--- V4.9: การ์ดสถานะสดอยู่ภายในแท็บ "สถานะ" ตามรูปแบบการ์ดของ UI หลัก
-local liveCard = new("Frame", {
-	Name = "LiveStatusCard",
-	Size = UDim2.new(1, -10, 0, 106),
-	BackgroundColor3 = C.row,
-	BorderSizePixel = 0
-}, pStatus)
-corner(liveCard, 10)
-stroke(liveCard, Color3.fromRGB(45, 160, 255), 1.2)
-
-new("TextLabel", {
-	Position = UDim2.fromOffset(12, 7),
-	Size = UDim2.new(1, -24, 0, 19),
-	BackgroundTransparency = 1,
-	Text = "สถานะเรียลไทม์",
-	TextColor3 = Color3.fromRGB(125, 220, 255),
-	Font = FONT,
-	TextSize = 14,
-	TextXAlignment = Enum.TextXAlignment.Left
-}, liveCard)
-
-local liveBadge = new("TextLabel", {
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -12, 0, 7),
-	Size = UDim2.fromOffset(64, 20),
-	BackgroundColor3 = Color3.fromRGB(35, 150, 105),
-	BorderSizePixel = 0,
-	Text = "● LIVE",
-	TextColor3 = Color3.new(1, 1, 1),
-	Font = FONT,
-	TextSize = 10
-}, liveCard)
-corner(liveBadge, 6)
-
-local liveHpTrack = new("Frame", {
-	Position = UDim2.fromOffset(12, 34),
-	Size = UDim2.new(0.47, -12, 0, 10),
-	BackgroundColor3 = Color3.fromRGB(42, 51, 78),
-	BorderSizePixel = 0
-}, liveCard)
-corner(liveHpTrack, 5)
-hudHpFill = new("Frame", {
-	Size = UDim2.new(1, 0, 1, 0),
-	BackgroundColor3 = Color3.fromRGB(52, 215, 135),
-	BorderSizePixel = 0
-}, liveHpTrack)
-corner(hudHpFill, 5)
-new("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(42, 230, 155), Color3.fromRGB(35, 170, 255)),
-	Rotation = 0
-}, hudHpFill)
-
-hudHpValue = new("TextLabel", {
-	Position = UDim2.new(0.49, 0, 0, 30),
-	Size = UDim2.new(0.20, 0, 0, 18),
-	BackgroundTransparency = 1,
-	Text = "HP --/--",
-	TextColor3 = Color3.fromRGB(225, 255, 235),
-	Font = FONT,
-	TextSize = 11,
-	TextXAlignment = Enum.TextXAlignment.Left
-}, liveCard)
-
-hudStats = new("TextLabel", {
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -12, 0, 30),
-	Size = UDim2.new(0.30, 0, 0, 18),
-	BackgroundTransparency = 1,
-	Text = "FPS -- • Ping --",
-	TextColor3 = Color3.fromRGB(200, 205, 255),
-	Font = Enum.Font.GothamMedium,
-	TextSize = 10,
-	TextXAlignment = Enum.TextXAlignment.Right,
-	TextTruncate = Enum.TextTruncate.AtEnd
-}, liveCard)
-
-hudImmortal = new("TextLabel", {
-	Position = UDim2.fromOffset(12, 68),
-	Size = UDim2.new(0.48, -12, 0, 20),
-	BackgroundTransparency = 1,
-	Text = "✦ IMMORTAL: OFF",
-	TextColor3 = Color3.fromRGB(170, 180, 205),
-	Font = FONT,
-	TextSize = 10,
-	TextXAlignment = Enum.TextXAlignment.Left
-}, liveCard)
-
-hudAntiFling = new("TextLabel", {
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -12, 0, 68),
-	Size = UDim2.new(0.48, 0, 0, 20),
-	BackgroundTransparency = 1,
-	Text = "◈ ANTI-FLING: OFF",
-	TextColor3 = Color3.fromRGB(170, 180, 205),
-	Font = FONT,
-	TextSize = 10,
-	TextXAlignment = Enum.TextXAlignment.Right
-}, liveCard)
+hudHpFill, hudHpValue, hudStats, hudImmortal, hudAntiFling = Instance.new("Frame"), Instance.new("TextLabel"), Instance.new("TextLabel"), Instance.new("TextLabel"), Instance.new("TextLabel")
 
 -- แถบสถานะลอยขนาดเล็ก เปิด/ปิดได้จากปุ่ม HUD ในหัว HUB
 local miniHud = new("Frame", {
@@ -4062,7 +3515,6 @@ do
 	infoRow("ระยะห่างจากเรา", "dist")
 	infoRow("ความเร็วตอนนี้", "speed")
 	infoRow("ภาษา", "lang")
-	infoRow("ตรวจโปร", "pro")
 
 	new("TextLabel", {
 		Size = UDim2.new(1, -10, 0, 44),
@@ -4154,15 +3606,6 @@ do
 			card.lang.Text = "--"
 		end
 
-		local f = proFlagged[p]
-
-		if f then
-			card.pro.Text = "โปร: " .. proReason(f)
-			card.pro.TextColor3 = Color3.fromRGB(255, 90, 90)
-		else
-			card.pro.Text = S.proDetect and "ปกติ" or "ปิดตรวจจับอยู่"
-			card.pro.TextColor3 = C.text
-		end
 	end
 
 	local function refreshList()
@@ -4451,7 +3894,7 @@ function Ext.server()
 	)
 end
 
--- V6.3: ย้ายเซิร์ฟด้วยลิงก์ที่คัดลอกมา (ลิงก์ roblox:// / เว็บ / โค้ด Lua ที่คัดลอกจากปุ่มด้านบน)
+-- V6.4: ย้ายเซิร์ฟด้วยลิงก์ที่คัดลอกมา (ลิงก์ roblox:// / เว็บ / โค้ด Lua ที่คัดลอกจากปุ่มด้านบน)
 do
 	local box = new("TextBox", {
 		Size = UDim2.new(1, -6, 0, 30),
@@ -4679,139 +4122,7 @@ do
 	paint()
 end
 
--- ตรวจจับโปร
-local pPro = Page("ตรวจจับโปร")
-
-Label(
-	pPro,
-	"ระบบตรวจจับโปร"
-)
-
-new("TextLabel", {
-	Size = UDim2.new(1, -6, 0, 44),
-	BackgroundTransparency = 1,
-	Text = "ตรวจคนที่บินนานผิดปกติหรือวิ่งเร็วเกินค่าที่เกมกำหนด (ไม่นับรถ วาร์ป ระบบบิน/บูสต์ของเกม)",
-	TextColor3 = Color3.fromRGB(145, 160, 200),
-	Font = Enum.Font.GothamMedium,
-	TextSize = 11,
-	TextWrapped = true,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextYAlignment = Enum.TextYAlignment.Top
-}, pPro)
-
-Toggle(
-	pPro,
-	"เปิดตรวจจับโปร",
-	function(v)
-		S.proDetect = v
-
-		if not v then
-			proResetAll()
-		end
-	end
-)
-
-Toggle(
-	pPro,
-	"ESP โปร (แดง + ขึ้นว่าโปร)",
-	function(v)
-		S.proEsp = v
-	end,
-	true
-)
-
-Toggle(
-	pPro,
-	"แจ้งเตือนเมื่อเจอโปร",
-	function(v)
-		S.proNotify = v
-	end,
-	true
-)
-
-Toggle(
-	pPro,
-	"จำคนโปรไว้ตลอด",
-	function(v)
-		S.proSticky = v
-	end,
-	true
-)
-
-Slider(
-	pPro,
-	"ค่าเผื่อความเร็ววิ่ง (% ของ WalkSpeed)",
-	150,
-	500,
-	S.proSpeedMul,
-	function(v)
-		S.proSpeedMul = v
-	end
-)
-
-Slider(
-	pPro,
-	"ลอยนานเกิน (วินาที) ถึงนับว่าบิน",
-	2,
-	10,
-	S.proFlyTime,
-	function(v)
-		S.proFlyTime = v
-	end
-)
-
-proCountLabel = new("TextLabel", {
-	Size = UDim2.new(1, -6, 0, 20),
-	BackgroundTransparency = 1,
-	Text = "ตรวจพบโปร: 0 คน",
-	TextColor3 = Color3.fromRGB(255, 90, 90),
-	Font = FONT,
-	TextSize = 13,
-	TextXAlignment = Enum.TextXAlignment.Left
-}, pPro)
-
-proListFrame = new("ScrollingFrame", {
-	Size = UDim2.new(1, -6, 0, 90),
-	BackgroundColor3 = C.row,
-	BorderSizePixel = 0,
-	ScrollBarThickness = 3,
-	AutomaticCanvasSize = Enum.AutomaticSize.Y,
-	CanvasSize = UDim2.new()
-}, pPro)
-
-corner(proListFrame, 6)
-
-new("UIListLayout", {
-	Padding = UDim.new(0, 4)
-}, proListFrame)
-
-new("UIPadding", {
-	PaddingTop = UDim.new(0, 4),
-	PaddingLeft = UDim.new(0, 4)
-}, proListFrame)
-
-Button(
-	pPro,
-	"ล้างรายชื่อโปร",
-	function()
-		for p in pairs(proFlagged) do
-			proFlagged[p] = nil
-
-			if p.Character then
-				proClearESP(p.Character)
-			end
-		end
-
-		for _, st in pairs(proTrack) do
-			st.speedStreak = 0
-			st.flyStreak = 0
-		end
-
-		proRefreshUI()
-	end
-)
-
-proRefreshUI()
+local pPro = Page("ประสิทธิภาพ")
 
 -- Aim
 local pAim = Page("ล็อคเป้า")
@@ -4839,20 +4150,53 @@ Toggle(
 	end
 )
 
-Toggle(
-	pAim,
-	"ไม่ล็อคทีมเดียวกัน",
-	function(v)
-		S.teamCheck = v
-	end,
-	true
-)
+S.noLock = {}
+Label(pAim, "ไม่ล็อคผู้เล่นที่เลือก (แตะชื่อเพื่อเปิด/ปิด)")
+local nlBox = new("ScrollingFrame", {
+	Size = UDim2.new(1, -6, 0, 100),
+	BackgroundColor3 = C.row,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new()
+}, pAim)
+corner(nlBox, 6)
+new("UIListLayout", {Padding = UDim.new(0, 3)}, nlBox)
+new("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4)}, nlBox)
+local function refreshNL()
+	for _, c in ipairs(nlBox:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LP then
+			local on = S.noLock[p.UserId]
+			local b = new("TextButton", {
+				Size = UDim2.new(1, -4, 0, 24),
+				BackgroundColor3 = on and Color3.fromRGB(200, 60, 60) or C.off,
+				Text = (on and "🚫 " or "") .. p.DisplayName .. " (@" .. p.Name .. ")",
+				TextColor3 = C.text,
+				Font = FONT,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd
+			}, nlBox)
+			corner(b, 5)
+			b.MouseButton1Click:Connect(function()
+				S.noLock[p.UserId] = (not S.noLock[p.UserId]) or nil
+				refreshNL()
+			end)
+		end
+	end
+end
+refreshNL()
+track(Players.PlayerAdded:Connect(function() task.delay(0.2, refreshNL) end))
+track(Players.PlayerRemoving:Connect(function() task.delay(0.2, refreshNL) end))
 
 Slider(
 	pAim,
 	"ขนาด FOV",
 	30,
-	400,
+	600,
 	S.fov,
 	function(v)
 
@@ -5423,7 +4767,7 @@ function Ext.viewer()
 		Size = UDim2.new(1, -20, 0, 18),
 		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
-		Text = "ตัวแกะสคริป V6.3 • LOADSTRING / Base64 / Hex / string.char / escape / reverse / concat / URL",
+		Text = "ตัวแกะสคริป V6.4 • LOADSTRING / Base64 / Hex / string.char / escape / reverse / concat / URL",
 		TextColor3 = C.accent,
 		Font = FONT,
 		TextSize = 13,
@@ -6123,18 +5467,16 @@ function Ext.viewer()
 		local text = vOutput.Text
 		if trim(text) == "" then setVStatus("ERROR | ไม่มี Source ให้ดาวน์โหลด กด DECODE ก่อน", SC_ERR) return end
 		if type(writefile) ~= "function" then setVStatus("ERROR | ตัวรันนี้ไม่มี writefile", SC_ERR) return end
-		local name = "script_" .. os.date("%Y%m%d_%H%M%S") .. ".lua"
-		-- ลองลงโฟลเดอร์ Downloads ก่อน (ตัวรันส่วนใหญ่ไม่อนุญาต) ไม่ได้ค่อยลง workspace
-		if pcall(writefile, "../Downloads/" .. name, text) and type(isfile) == "function" and isfile("../Downloads/" .. name) then
-			setVStatus("SAVED | Downloads/" .. name, SC_OK)
-			return
-		end
 		if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder("KTHub_Scripts") then pcall(makefolder, "KTHub_Scripts") end
-		local path = "KTHub_Scripts/" .. name
-		if pcall(writefile, path, text) then
-			setVStatus("SAVED | workspace/" .. path .. " (Downloads เขียนตรงไม่ได้ในตัวรันนี้)", SC_OK)
-		elseif pcall(writefile, name, text) then
-			setVStatus("SAVED | workspace/" .. name, SC_OK)
+		local base = "script_" .. os.date("%Y%m%d_%H%M%S")
+		local saved
+		for _, path in ipairs({"KTHub_Scripts/" .. base .. ".lua", base .. ".lua", "KTHub_Scripts/" .. base .. ".txt", base .. ".txt"}) do
+			if pcall(writefile, path, text) then saved = path break end
+		end
+		if saved then
+			pcall(writefile, "../Downloads/" .. base .. ".lua", text)
+			if type(setclipboard) == "function" then pcall(setclipboard, text) end
+			setVStatus("SAVED | workspace/" .. saved .. " (คัดลอกลงคลิปบอร์ดแล้ว)", SC_OK)
 		else
 			setVStatus("ERROR | บันทึกไฟล์ไม่สำเร็จ", SC_ERR)
 		end
@@ -7142,9 +6484,6 @@ local function cleanup()
 	setInvisible(false)
 	setClickTeleport(false)
 	setPickupOnce(false)
-
-	S.proDetect = false
-	proResetAll()
 
 	pcall(function()
 		RunService:UnbindFromRenderStep(
