@@ -1,4 +1,5 @@
---// ขอโทษ HUB V6.2
+--// ขอโทษ HUB V6.3
+-- V6.3: ย้ายเซิร์ฟด้วยลิงก์, UI บินเล็กลง, ทะลุกำแพงทะลุหมด + ไม่ทะลุพื้น, ESP เส้นตรงผู้เล่น
 -- V6.2: ปุ่มปิด UI บิน, ทะลุกำแพง/พื้นรวมเป็นระบบเดียว, ESP เส้นหาทุกคน, ตัวแกะสคริปอัปเกรด + ปุ่มดาวน์โหลด
 -- หมายเหตุ: การป้องกันความเสียหาย/อมตะจริงต้องตรวจสอบจากเซิร์ฟเวอร์ของเกม
 local Players = game:GetService("Players")
@@ -17,7 +18,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V6.2"
+local VERSION = "V6.3"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -47,7 +48,7 @@ local S = {
 	light = false, lightVal = 3,
 	car = false, carVal = 100,
 
-	noclip = false, ncFloor = false,
+	noclip = false, ncSolid = false,
 	invisible = false,
 	clickTp = false,
 	pickupOnce = false,
@@ -1088,60 +1089,123 @@ local function setFly(v)
 	if Ext.flyRefresh then Ext.flyRefresh() end
 end
 
--- UI บินแยกเล็ก ๆ: เปิด/ปิดการบิน + ปรับความเร็ว (ลากย้ายได้) ปุ่มขึ้น/ลงอยู่ด้านขวาตอนบิน
+-- UI บินแยกเล็ก ๆ (V6.3 เล็กลง): เปิด/ปิดการบิน + ปรับความเร็ว ลากที่แถบหัวย้ายได้
 do
 	local panel = new("Frame", {
 		Name = "KTFlyUI",
 		Position = UDim2.fromOffset(14, 150),
-		Size = UDim2.fromOffset(210, 122),
+		Size = UDim2.fromOffset(128, 70),
 		BackgroundColor3 = C.bg,
 		Visible = false,
 		Active = true
 	}, gui)
-	corner(panel, 10)
-	stroke(panel, C.accent, 1.2)
+	corner(panel, 8)
+	stroke(panel, C.accent, 1)
 
 	local bar = new("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 24),
+		Size = UDim2.new(1, -22, 0, 18),
 		BackgroundTransparency = 1,
-		Text = "ระบบบิน (ลากย้ายได้)",
+		Text = "บิน (ลากย้าย)",
 		TextColor3 = C.text,
 		Font = FONT,
-		TextSize = 12
+		TextSize = 11
 	}, panel)
 	makeDraggable(bar, panel)
 
 	local xBtn = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -4, 0, 3),
-		Size = UDim2.fromOffset(20, 18),
+		Position = UDim2.new(1, -3, 0, 2),
+		Size = UDim2.fromOffset(16, 14),
 		BackgroundColor3 = Color3.fromRGB(200, 60, 70),
 		Text = "✕",
 		TextColor3 = Color3.new(1, 1, 1),
 		Font = FONT,
-		TextSize = 12,
+		TextSize = 10,
 		ZIndex = 5
 	}, panel)
-	corner(xBtn, 5)
+	corner(xBtn, 4)
 	xBtn.MouseButton1Click:Connect(function()
 		if Ext.flyClose then Ext.flyClose() else panel.Visible = false; setFly(false) end
-	 end)
+	end)
 
-	local body = new("Frame", {
-		Position = UDim2.fromOffset(4, 26),
-		Size = UDim2.new(1, -8, 1, -30),
-		BackgroundTransparency = 1
+	local btn = new("TextButton", {
+		Position = UDim2.fromOffset(5, 20),
+		Size = UDim2.new(1, -10, 0, 22),
+		BackgroundColor3 = C.off,
+		Text = "",
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = FONT,
+		TextSize = 11
 	}, panel)
-	new("UIListLayout", {Padding = UDim.new(0, 5)}, body)
+	corner(btn, 5)
+	btn.MouseButton1Click:Connect(function() setFly(not S.fly) end)
 
-	local btn
-	local function refresh()
-		btn.Text = S.fly and "บิน: เปิด (แตะเพื่อปิด)" or "บิน: ปิด (แตะเพื่อเปิด)"
-		btn.BackgroundColor3 = S.fly and Color3.fromRGB(46, 190, 115) or C.off
+	local lbl = new("TextLabel", {
+		Position = UDim2.fromOffset(5, 44),
+		Size = UDim2.new(1, -10, 0, 12),
+		BackgroundTransparency = 1,
+		TextColor3 = C.text,
+		Font = FONT,
+		TextSize = 10
+	}, panel)
+
+	local hit = new("Frame", {
+		Position = UDim2.fromOffset(5, 55),
+		Size = UDim2.new(1, -10, 0, 12),
+		BackgroundTransparency = 1,
+		Active = true
+	}, panel)
+	local rail = new("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.new(1, 0, 0, 5),
+		BackgroundColor3 = C.row,
+		BorderSizePixel = 0
+	}, hit)
+	corner(rail, 3)
+	local fill = new("Frame", {
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = C.accent,
+		BorderSizePixel = 0
+	}, rail)
+	corner(fill, 3)
+
+	local MINV, MAXV = 10, 500
+	local function showSpeed()
+		lbl.Text = "ความเร็ว: " .. S.flyVal
+		fill.Size = UDim2.fromScale(math.clamp((S.flyVal - MINV) / (MAXV - MINV), 0, 1), 1)
 	end
+	local function setFrom(x)
+		local a = math.clamp((x - rail.AbsolutePosition.X) / math.max(rail.AbsoluteSize.X, 1), 0, 1)
+		S.flyVal = math.floor(MINV + a * (MAXV - MINV) + 0.5)
+		showSpeed()
+	end
+	local dragging = false
+	track(hit.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			setFrom(i.Position.X)
+		end
+	end))
+	track(UIS.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+			or i.UserInputType == Enum.UserInputType.Touch) then
+			setFrom(i.Position.X)
+		end
+	end))
+	track(UIS.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end))
 
-	btn = Button(body, "", function() setFly(not S.fly) end)
-	Slider(body, "ความเร็วบิน", 10, 500, S.flyVal, function(v) S.flyVal = v end)
+	local function refresh()
+		btn.Text = S.fly and "บิน: เปิด" or "บิน: ปิด"
+		btn.BackgroundColor3 = S.fly and Color3.fromRGB(46, 190, 115) or C.off
+		showSpeed()
+	end
 
 	Ext.flyRefresh = refresh
 	Ext.flyUI = function(v)
@@ -1171,7 +1235,7 @@ do
 		local f = pool[p]
 		if not f or not f.Parent then
 			f = new("Frame", {
-				AnchorPoint = Vector2.new(0, 0.5), Size = UDim2.fromOffset(0, 1.5),
+				AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(0, 1.5),
 				BackgroundColor3 = C.accent, BorderSizePixel = 0, Visible = false, ZIndex = 19
 			}, overlay)
 			pool[p] = f
@@ -1194,12 +1258,13 @@ do
 		for _, p in ipairs(Players:GetPlayers()) do
 			if p ~= LP then
 				local f = getLine(p)
-				local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+				local ch = p.Character
+				local root = ch and (ch:FindFirstChild("HumanoidRootPart") or ch.PrimaryPart)
 				local sp = root and cam:WorldToViewportPoint(root.Position)
 				if sp and sp.Z > 0 then
 					local d = Vector2.new(sp.X, sp.Y) - o
 					f.BackgroundColor3 = (proFlagged[p] and S.proDetect) and Color3.fromRGB(255, 60, 60) or C.accent
-					f.Position = UDim2.fromOffset(o.X, o.Y)
+					f.Position = UDim2.fromOffset(o.X + d.X / 2, o.Y + d.Y / 2)
 					f.Size = UDim2.fromOffset(d.Magnitude, 1.5)
 					f.Rotation = math.deg(math.atan2(d.Y, d.X))
 					f.Visible = true
@@ -1462,7 +1527,7 @@ task.spawn(function()
 end)
 
 -- Noclip V6.2 (รวมเป็นระบบเดียว)
--- S.noclip = เปิดทะลุกำแพง | S.ncFloor = ทะลุพื้นด้วย (ปิด = ไม่ทะลุพื้น)
+-- S.noclip = ทะลุทุกอย่าง | S.ncSolid = ไม่ทะลุพื้น (เปิด = มีพื้นกันตก)
 -- ไม่ทะลุพื้น: แผ่นพื้นล่องหนใต้เท้า + ดึงกลับถ้าเท้าผ่านผิวพื้น + กลับจุดปลอดภัยถ้าตกหลุด
 local setNoclip
 
@@ -1485,7 +1550,7 @@ do
 			if part:IsA("BasePart") then part.CanCollide = false end
 		end
 
-		if S.ncFloor then killGuard() return end
+		if not S.ncSolid then killGuard() return end
 
 		local hum = c:FindFirstChildOfClass("Humanoid")
 		local root = c:FindFirstChild("HumanoidRootPart")
@@ -4386,6 +4451,41 @@ function Ext.server()
 	)
 end
 
+-- V6.3: ย้ายเซิร์ฟด้วยลิงก์ที่คัดลอกมา (ลิงก์ roblox:// / เว็บ / โค้ด Lua ที่คัดลอกจากปุ่มด้านบน)
+do
+	local box = new("TextBox", {
+		Size = UDim2.new(1, -6, 0, 30),
+		BackgroundColor3 = C.row,
+		ClearTextOnFocus = false,
+		Text = "",
+		PlaceholderText = "วางลิงก์เซิร์ฟเวอร์ตรงนี้",
+		PlaceholderColor3 = Color3.fromRGB(120, 130, 170),
+		TextColor3 = C.text,
+		Font = Enum.Font.Code,
+		TextSize = 12,
+		TextTruncate = Enum.TextTruncate.AtEnd
+	}, pServer)
+	corner(box, 6)
+
+	Button(pServer, "ย้ายไปเซิร์ฟตามลิงก์", function()
+		local t = box.Text
+		local place = t:match("[Pp]lace[Ii]d=(%d+)")
+		local job = t:match("[Gg]ame[Ii]nstance[Ii]d=([%w%-]+)")
+		if not (place and job) then
+			place, job = t:match("(%d+)%s*,%s*[\"']([%w%-]+)[\"']")
+		end
+		if not (place and job) then
+			notify("ลิงก์ไม่ถูกต้อง หา placeId/gameInstanceId ไม่เจอ")
+			return
+		end
+		notify("กำลังย้ายไปเซิร์ฟเวอร์ตามลิงก์...")
+		local ok = pcall(function()
+			TeleportService:TeleportToPlaceInstance(tonumber(place), job, LP)
+		end)
+		if not ok then notify("ย้ายเซิร์ฟเวอร์ไม่สำเร็จ") end
+	end)
+end
+
 Ext.server()
 
 Label(pServer, "รายชื่อผู้เล่นในเซิฟ")
@@ -4456,9 +4556,9 @@ local setNcToggle = Toggle(pMain, "ทะลุกำแพง", setNoclip)
 
 Toggle(
 	pMain,
-	"└ ทะลุพื้นด้วย (ปิด = ไม่ทะลุพื้น)",
+	"└ ไม่ทะลุพื้น (เปิด = ไม่ทะลุพื้น)",
 	function(v)
-		S.ncFloor = v
+		S.ncSolid = v
 		if v and not S.noclip then setNcToggle(true) end
 		Ext.ncRefresh()
 	end
@@ -5323,7 +5423,7 @@ function Ext.viewer()
 		Size = UDim2.new(1, -20, 0, 18),
 		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
-		Text = "ตัวแกะสคริป V6.2 • LOADSTRING / Base64 / Hex / string.char / escape / reverse / concat / URL",
+		Text = "ตัวแกะสคริป V6.3 • LOADSTRING / Base64 / Hex / string.char / escape / reverse / concat / URL",
 		TextColor3 = C.accent,
 		Font = FONT,
 		TextSize = 13,
