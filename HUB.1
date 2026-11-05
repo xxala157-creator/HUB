@@ -1,4 +1,5 @@
---// ขอโทษ HUB V6.4
+--// ขอโทษ HUB V6.5
+-- V6.5: ช่องค้นหา (ไทย/English), ย้ายรายชื่อไม่ล็อคมาใต้ล็อคหัวผู้เล่น, ดึงผู้เล่น/NPC มาข้างหน้า, ลดแร็กสูงสุด
 -- V6.4: ลบแท็บตรวจจับโปร, ล็อคเป้าเลือกผู้เล่นที่ไม่ล็อค, FOV สูงสุด 600, แก้ปุ่มดาวน์โหลดตัวแกะสคริป, ลบ UI สถานะเรียลไทม์
 -- V6.4: ย้ายเซิร์ฟด้วยลิงก์, UI บินเล็กลง, ทะลุกำแพงทะลุหมด + ไม่ทะลุพื้น, ESP เส้นตรงผู้เล่น
 -- V6.2: ปุ่มปิด UI บิน, ทะลุกำแพง/พื้นรวมเป็นระบบเดียว, ESP เส้นหาทุกคน, ตัวแกะสคริปอัปเกรด + ปุ่มดาวน์โหลด
@@ -19,7 +20,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V6.4"
+local VERSION = "V6.5"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -514,8 +515,8 @@ new("UIPadding", {
 }, sidebar)
 
 local content = new("Frame", {
-	Size = UDim2.new(1, -125, 1, -44),
-	Position = UDim2.fromOffset(117, 36),
+	Size = UDim2.new(1, -125, 1, -74),
+	Position = UDim2.fromOffset(117, 66),
 	BackgroundColor3 = C.panel
 }, main)
 
@@ -524,6 +525,7 @@ corner(content, 10)
 local pages, tabBtns = {}, {}
 
 local function selectTab(name)
+	if Ext.sres then Ext.sres.Visible = false end
 	for n, p in pairs(pages) do
 		p.Visible = (n == name)
 	end
@@ -532,6 +534,152 @@ local function selectTab(name)
 		b.BackgroundColor3 = (n == name) and C.accent or C.row
 	end
 end
+
+
+-- V6.5: ช่องค้นหาฟังก์ชัน (ไทย/English)
+local sbox = new("TextBox", {
+	Size = UDim2.new(1, -125, 0, 26),
+	Position = UDim2.fromOffset(117, 36),
+	BackgroundColor3 = C.row,
+	Text = "",
+	PlaceholderText = "🔍 ค้นหาฟังก์ชัน / Search",
+	PlaceholderColor3 = Color3.fromRGB(150, 150, 150),
+	TextColor3 = C.text,
+	Font = FONT,
+	TextSize = 13,
+	ClearTextOnFocus = false,
+	TextXAlignment = Enum.TextXAlignment.Left
+}, main)
+corner(sbox, 8)
+new("UIPadding", {PaddingLeft = UDim.new(0, 8)}, sbox)
+
+local sres = new("ScrollingFrame", {
+	Size = UDim2.new(1, -10, 1, -10),
+	Position = UDim2.fromOffset(5, 5),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new(),
+	Visible = false
+}, content)
+new("UIListLayout", {Padding = UDim.new(0, 4)}, sres)
+Ext.sres = sres
+
+-- คำไทย/อังกฤษที่ความหมายเดียวกัน (พิมพ์อย่างใดอย่างหนึ่งก็เจอ)
+local ALIAS = {
+	{"บิน", "fly", "flight"}, {"ล็อค", "lock", "aim"}, {"ผู้เล่น", "player"},
+	{"ความเร็ว", "speed", "สปีด", "วิ่ง"}, {"กระโดด", "jump"}, {"ทะลุ", "noclip", "wall", "กำแพง"},
+	{"มองเห็น", "esp", "see"}, {"วาร์ป", "tp", "teleport", "warp"}, {"อมตะ", "immortal", "god"},
+	{"เลือด", "hp", "health", "heal"}, {"ซูม", "zoom"}, {"ถอดจิต", "spirit"},
+	{"แลค", "lag", "แร็ก", "ค้าง", "fps"}, {"ล่องหน", "invisible", "invis"}, {"เซิร์ฟ", "เซิฟ", "server"},
+	{"รถ", "car"}, {"ดึง", "pull", "bring"}, {"หน้า", "front"}, {"ธีม", "theme"},
+	{"ตั้งค่า", "config", "setting"}, {"เส้น", "line"}, {"หัว", "head"}, {"เป้า", "target"},
+	{"สคริป", "script"}, {"ไฟ", "light"}, {"ฮิตบ็อก", "hitbox"}, {"ไม่ล็อค", "nolock"},
+}
+
+local function entryTexts(c)
+	local t = {}
+	if (c:IsA("TextLabel") or c:IsA("TextButton")) and c.Text ~= "" then t[1] = c.Text end
+	for _, d in ipairs(c:GetDescendants()) do
+		if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text ~= "" then
+			t[#t + 1] = d.Text
+			if #t >= 4 then break end
+		end
+	end
+	return t
+end
+
+local lastTab
+local function curTab()
+	for n, p in pairs(pages) do if p.Visible then return n end end
+end
+
+local function jumpTo(tab, c)
+	sbox.Text = ""
+	selectTab(tab)
+	task.defer(function()
+		RunService.Heartbeat:Wait()
+		local pg = pages[tab]
+		if not pg or not c.Parent then return end
+		pcall(function()
+			pg.CanvasPosition = Vector2.new(0, math.max(0, c.AbsolutePosition.Y - pg.AbsolutePosition.Y + pg.CanvasPosition.Y - 4))
+		end)
+		if c:IsA("Frame") then
+			local o = c.BackgroundColor3
+			c.BackgroundColor3 = C.accent
+			task.delay(0.7, function() if c.Parent then c.BackgroundColor3 = o end end)
+		end
+	end)
+end
+
+local function doSearch()
+	local q = string.lower(sbox.Text):match("^%s*(.-)%s*$")
+	if q == "" then
+		if sres.Visible then selectTab(lastTab or "สถานะ") end
+		return
+	end
+	if not sres.Visible then lastTab = curTab() end
+
+	local terms = {q}
+	for _, g in ipairs(ALIAS) do
+		for _, t in ipairs(g) do
+			if t:find(q, 1, true) or q:find(t, 1, true) then
+				for _, x in ipairs(g) do terms[#terms + 1] = x end
+				break
+			end
+		end
+	end
+
+	for _, ch in ipairs(sres:GetChildren()) do
+		if ch:IsA("GuiObject") then ch:Destroy() end
+	end
+	for _, p in pairs(pages) do p.Visible = false end
+	sres.Visible = true
+
+	local n = 0
+	for tab, pg in pairs(pages) do
+		local tb = tabBtns[tab]
+		if tb and tb.Visible then
+			for _, c in ipairs(pg:GetChildren()) do
+				if n >= 40 then break end
+				if c:IsA("GuiObject") and not c:IsA("ScrollingFrame") then
+					local t = entryTexts(c)
+					if #t > 0 then
+						local hay = string.lower(table.concat(t, " "))
+						for _, term in ipairs(terms) do
+							if hay:find(term, 1, true) then
+								n += 1
+								local b = new("TextButton", {
+									Size = UDim2.new(1, -6, 0, 32),
+									BackgroundColor3 = C.row,
+									Text = tab .. "  ›  " .. t[1],
+									TextColor3 = C.text,
+									Font = FONT,
+									TextSize = 12,
+									TextXAlignment = Enum.TextXAlignment.Left,
+									TextTruncate = Enum.TextTruncate.AtEnd,
+									AutoButtonColor = true
+								}, sres)
+								corner(b, 8)
+								new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 6)}, b)
+								b.MouseButton1Click:Connect(function() jumpTo(tab, c) end)
+								break
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	if n == 0 then
+		new("TextLabel", {
+			Size = UDim2.new(1, -6, 0, 28), BackgroundTransparency = 1, Text = "ไม่พบฟังก์ชันที่ค้นหา",
+			TextColor3 = C.text, Font = FONT, TextSize = 13
+		}, sres)
+	end
+end
+track(sbox:GetPropertyChangedSignal("Text"):Connect(doSearch))
 
 local function Page(name)
 	local btn = new("TextButton", {
@@ -4039,6 +4187,50 @@ setSpiritToggle = Toggle(
 	end
 )
 
+-- V6.5: ดึงผู้เล่น / NPC มาไว้ข้างหน้าตัวเรา (ฝั่งเครื่องเรา)
+S.pullDist = 8
+do
+	local pullConn
+	local function pullStep()
+		local _, _, root = getChar()
+		if not root then return end
+		local list = {}
+		if S.pullP then
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LP and p.Character and alive(p.Character) then list[#list + 1] = p.Character end
+			end
+		end
+		if S.pullN then
+			for m in pairs(npcs) do
+				if alive(m) then list[#list + 1] = m end
+			end
+		end
+		for i, m in ipairs(list) do
+			local r = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Torso")
+			if r and r:IsA("BasePart") then
+				local col, row = (i - 1) % 6, math.floor((i - 1) / 6)
+				r.CFrame = root.CFrame * CFrame.new((col - 2.5) * 3, 0, -S.pullDist - row * 3)
+				r.AssemblyLinearVelocity = Vector3.zero
+				r.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
+	local function refresh()
+		local need = S.pullP or S.pullN
+		if need and not pullConn then
+			pullConn = track(RunService.Heartbeat:Connect(function() pcall(pullStep) end))
+		elseif not need and pullConn then
+			pullConn:Disconnect()
+			pullConn = nil
+		end
+	end
+
+	Label(pMain, "ดึงเข้ามาข้างหน้า")
+	Toggle(pMain, "ดึงผู้เล่นมาไว้ข้างหน้า", function(v) S.pullP = v refresh() end)
+	Toggle(pMain, "ดึง NPC มาไว้ข้างหน้า", function(v) S.pullN = v refresh() end)
+	Slider(pMain, "ระยะห่างจากตัวเรา", 3, 40, S.pullDist, function(v) S.pullDist = v end)
+end
+
 -- มองเห็น
 local pVis = Page("มองเห็น")
 
@@ -4141,15 +4333,6 @@ Toggle(
 	end
 )
 
-Toggle(
-	pAim,
-	"ล็อคหัว NPC / บอท",
-	function(v)
-		S.lockN = v
-	updateFovVisible()
-	end
-)
-
 S.noLock = {}
 Label(pAim, "ไม่ล็อคผู้เล่นที่เลือก (แตะชื่อเพื่อเปิด/ปิด)")
 local nlBox = new("ScrollingFrame", {
@@ -4191,6 +4374,16 @@ end
 refreshNL()
 track(Players.PlayerAdded:Connect(function() task.delay(0.2, refreshNL) end))
 track(Players.PlayerRemoving:Connect(function() task.delay(0.2, refreshNL) end))
+
+Toggle(
+	pAim,
+	"ล็อคหัว NPC / บอท",
+	function(v)
+		S.lockN = v
+	updateFovVisible()
+	end
+)
+
 
 Slider(
 	pAim,
@@ -4437,6 +4630,82 @@ Toggle(
 	pTool,
 	"ลดอาการแลค (Anti-Lag)",
 	setAntiLag
+)
+
+-- V6.5: ลดแร็ก/ค้างสูงสุด (ลบของและ effect ที่ไม่จำเป็น — ของที่ลบแล้วคืนไม่ได้ จนกว่าจะรีจอยน์)
+local setMaxLag
+do
+	local gen, conns2, origQ, origSh = 0, {}, nil, nil
+	local function nuke(d)
+		local ch = LP.Character
+		if ch and d:IsDescendantOf(ch) then return end
+		if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Smoke")
+			or d:IsA("Fire") or d:IsA("Sparkles") or d:IsA("Explosion") or d:IsA("Decal")
+			or d:IsA("Texture") or d:IsA("PostEffect") or d:IsA("Atmosphere") or d:IsA("SurfaceAppearance")
+			or d:IsA("PointLight") or d:IsA("SpotLight") or d:IsA("SurfaceLight") or d:IsA("Highlight") then
+			d:Destroy()
+		elseif d:IsA("Accessory") or d:IsA("Clothing") or d:IsA("ShirtGraphic") then
+			if d.Parent and Players:GetPlayerFromCharacter(d.Parent) then d:Destroy() end
+		elseif d:IsA("BasePart") and not d:IsA("Terrain") then
+			d.CastShadow = false
+			d.Material = Enum.Material.Plastic
+			d.Reflectance = 0
+		end
+	end
+	setMaxLag = function(v)
+		S.maxLag = v
+		gen += 1
+		local g = gen
+		for _, c in ipairs(conns2) do pcall(function() c:Disconnect() end) end
+		conns2 = {}
+		if v then
+			notify("ลดแร็กสูงสุด: กำลังลบของ/เอฟเฟกต์ที่ไม่จำเป็น")
+			pcall(function()
+				origQ = origQ or settings().Rendering.QualityLevel
+				settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+			end)
+			pcall(function()
+				if origSh == nil then origSh = Lighting.GlobalShadows end
+				Lighting.GlobalShadows = false
+				Lighting.FogEnd = 9e9
+			end)
+			pcall(function()
+				local t = Workspace.Terrain
+				t.WaterWaveSize = 0
+				t.WaterReflectance = 0
+				t.Decoration = false
+			end)
+			for _, root in ipairs({Workspace, Lighting}) do
+				conns2[#conns2 + 1] = root.DescendantAdded:Connect(function(d)
+					if S.maxLag then task.defer(function() pcall(nuke, d) end) end
+				end)
+			end
+			task.spawn(function()
+				local n = 0
+				for _, root in ipairs({Lighting, Workspace}) do
+					for _, d in ipairs(root:GetDescendants()) do
+						if g ~= gen then return end
+						pcall(nuke, d)
+						n += 1
+						if n % 300 == 0 then task.wait() end
+					end
+				end
+				notify("ลดแร็กสูงสุดเสร็จแล้ว")
+			end)
+		else
+			pcall(function() if origQ then settings().Rendering.QualityLevel = origQ end end)
+			pcall(function() if origSh ~= nil then Lighting.GlobalShadows = origSh end end)
+			origQ, origSh = nil, nil
+			notify("หยุดลดแร็กสูงสุดแล้ว (ของที่ลบไปคืนไม่ได้)")
+		end
+	end
+	table.insert(Ext.cleanups, function() setMaxLag(false) end)
+end
+
+Toggle(
+	pTool,
+	"ลดแร็ก/ค้างสูงสุด (ลบของ+effect ที่ไม่จำเป็น)",
+	setMaxLag
 )
 
 -- V4.9: ระบบป้องกัน • Defense
@@ -4767,7 +5036,7 @@ function Ext.viewer()
 		Size = UDim2.new(1, -20, 0, 18),
 		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
-		Text = "ตัวแกะสคริป V6.4 • LOADSTRING / Base64 / Hex / string.char / escape / reverse / concat / URL",
+		Text = "ตัวแกะสคริป V6.5 • LOADSTRING / Base64 / Hex / string.char / escape / reverse / concat / URL",
 		TextColor3 = C.accent,
 		Font = FONT,
 		TextSize = 13,
