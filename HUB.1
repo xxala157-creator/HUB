@@ -271,17 +271,7 @@ end
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = (function()
-		local vp = gui.AbsoluteSize
-		if vp.X < 100 then
-			local cam = Workspace.CurrentCamera
-			vp = cam and cam.ViewportSize or Vector2.new(850, 400)
-		end
-		return UDim2.fromOffset(
-			math.clamp(math.floor(vp.X * 0.52), 360, 520),
-			math.clamp(math.floor(vp.Y * 0.62), 230, 330)
-		)
-	end)(), -- V6.6: ขนาดพอดีหน้าต่างตัวรัน (ปรับสัดส่วนที่ 0.52 / 0.62 ได้)
+	Size = UDim2.fromOffset(520, 330), -- ขนาดเท่า V6.2 (ปรับขนาดเองได้โดยลากมุม ◢)
 	BackgroundColor3 = C.bg,
 	BorderSizePixel = 0
 }, gui)
