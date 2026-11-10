@@ -1,4 +1,5 @@
---// ขอโทษ HUB V6.5
+--// ขอโทษ HUB V6.6
+-- V6.6: HUB ขนาดพอดีแบบหน้าต่างตัวรัน Delta, เลือกทิศดึงผู้เล่น/NPC (หน้า/หลัง/ซ้าย/ขวา/บน/ล่าง), ปุ่มล่องหน UI (แท็บตั้งค่า)
 -- V6.5: ช่องค้นหา (ไทย/English), ย้ายรายชื่อไม่ล็อคมาใต้ล็อคหัวผู้เล่น, ดึงผู้เล่น/NPC มาข้างหน้า, ลดแร็กสูงสุด
 -- V6.4: ลบแท็บตรวจจับโปร, ล็อคเป้าเลือกผู้เล่นที่ไม่ล็อค, FOV สูงสุด 600, แก้ปุ่มดาวน์โหลดตัวแกะสคริป, ลบ UI สถานะเรียลไทม์
 -- V6.4: ย้ายเซิร์ฟด้วยลิงก์, UI บินเล็กลง, ทะลุกำแพงทะลุหมด + ไม่ทะลุพื้น, ESP เส้นตรงผู้เล่น
@@ -20,7 +21,7 @@ local LP = Players.LocalPlayer
 
 local ICON_ID = ""
 
-local VERSION = "V6.5"
+local VERSION = "V6.6"
 
 local env = (getgenv and getgenv()) or _G
 if env.__KTHubCleanup then pcall(env.__KTHubCleanup) end
@@ -97,6 +98,7 @@ local function stroke(o, color, thickness)
 end
 
 local function notify(t)
+	if Ext.stealth then return end
 	pcall(function()
 		StarterGui:SetCore("SendNotification", {
 			Title = "ขอโทษ HUB",
@@ -269,7 +271,17 @@ end
 local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(520, 330),
+	Size = (function()
+		local vp = gui.AbsoluteSize
+		if vp.X < 100 then
+			local cam = Workspace.CurrentCamera
+			vp = cam and cam.ViewportSize or Vector2.new(850, 400)
+		end
+		return UDim2.fromOffset(
+			math.clamp(math.floor(vp.X * 0.52), 360, 520),
+			math.clamp(math.floor(vp.Y * 0.62), 230, 330)
+		)
+	end)(), -- V6.6: ขนาดพอดีหน้าต่างตัวรัน (ปรับสัดส่วนที่ 0.52 / 0.62 ได้)
 	BackgroundColor3 = C.bg,
 	BorderSizePixel = 0
 }, gui)
@@ -1437,6 +1449,7 @@ local function applyESP(m, color, label)
 			OutlineColor = color,
 			FillTransparency = 0.6,
 			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+			Enabled = not Ext.stealth,
 			Adornee = m
 		}, m)
 
@@ -1448,6 +1461,7 @@ local function applyESP(m, color, label)
 				Size = UDim2.fromOffset(120, 20),
 				StudsOffset = Vector3.new(0, 2.5, 0),
 				AlwaysOnTop = true,
+				Enabled = not Ext.stealth,
 				Adornee = head
 			}, hl)
 
@@ -4187,32 +4201,53 @@ setSpiritToggle = Toggle(
 	end
 )
 
--- V6.5: ดึงผู้เล่น / NPC มาไว้ข้างหน้าตัวเรา (ฝั่งเครื่องเรา)
+-- V6.6: ดึงผู้เล่น / NPC มาไว้รอบตัวเรา เลือกทิศได้แยกกัน (หน้า/หลัง/ซ้าย/ขวา/บน/ล่าง) (ฝั่งเครื่องเรา)
 S.pullDist = 8
+S.pullDirP = 1
+S.pullDirN = 1
 do
 	local pullConn
-	local function pullStep()
-		local _, _, root = getChar()
-		if not root then return end
-		local list = {}
-		if S.pullP then
-			for _, p in ipairs(Players:GetPlayers()) do
-				if p ~= LP and p.Character and alive(p.Character) then list[#list + 1] = p.Character end
-			end
-		end
-		if S.pullN then
-			for m in pairs(npcs) do
-				if alive(m) then list[#list + 1] = m end
-			end
-		end
+	-- แกนทิศ: {ทิศหลัก, แกนคอลัมน์, แกนแถว(ถอยออกไป)}
+	local DIRS = {
+		Vector3.new(0, 0, -1), -- 1 หน้า
+		Vector3.new(0, 0, 1),  -- 2 หลัง
+		Vector3.new(-1, 0, 0), -- 3 ซ้าย
+		Vector3.new(1, 0, 0),  -- 4 ขวา
+		Vector3.new(0, 1, 0),  -- 5 บน
+		Vector3.new(0, -1, 0), -- 6 ล่าง
+	}
+	local function place(list, dirIdx, root)
+		local d = DIRS[dirIdx] or DIRS[1]
+		local colAxis = (dirIdx == 3 or dirIdx == 4) and Vector3.new(0, 0, 1) or Vector3.new(1, 0, 0)
+		local rowAxis = d
+		if dirIdx == 5 or dirIdx == 6 then rowAxis = Vector3.new(0, 0, 1) end
 		for i, m in ipairs(list) do
 			local r = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Torso")
 			if r and r:IsA("BasePart") then
 				local col, row = (i - 1) % 6, math.floor((i - 1) / 6)
-				r.CFrame = root.CFrame * CFrame.new((col - 2.5) * 3, 0, -S.pullDist - row * 3)
+				local off = d * S.pullDist + colAxis * ((col - 2.5) * 3) + rowAxis * (row * 3)
+				r.CFrame = root.CFrame * CFrame.new(off)
 				r.AssemblyLinearVelocity = Vector3.zero
 				r.AssemblyAngularVelocity = Vector3.zero
 			end
+		end
+	end
+	local function pullStep()
+		local _, _, root = getChar()
+		if not root then return end
+		if S.pullP then
+			local list = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LP and p.Character and alive(p.Character) then list[#list + 1] = p.Character end
+			end
+			place(list, S.pullDirP, root)
+		end
+		if S.pullN then
+			local list = {}
+			for m in pairs(npcs) do
+				if alive(m) then list[#list + 1] = m end
+			end
+			place(list, S.pullDirN, root)
 		end
 	end
 	local function refresh()
@@ -4225,9 +4260,39 @@ do
 		end
 	end
 
-	Label(pMain, "ดึงเข้ามาข้างหน้า")
-	Toggle(pMain, "ดึงผู้เล่นมาไว้ข้างหน้า", function(v) S.pullP = v refresh() end)
-	Toggle(pMain, "ดึง NPC มาไว้ข้างหน้า", function(v) S.pullN = v refresh() end)
+	-- แถวเลือกทิศ 6 ปุ่ม
+	local DIR_NAMES = {"หน้า", "หลัง", "ซ้าย", "ขวา", "บน", "ล่าง"}
+	local function dirPicker(pg, title, get, set)
+		local row = new("Frame", {Size = UDim2.new(1, -6, 0, 58), BackgroundColor3 = C.row}, pg)
+		corner(row, 10)
+		new("TextLabel", {
+			Size = UDim2.new(1, -16, 0, 22), Position = UDim2.fromOffset(10, 3),
+			BackgroundTransparency = 1, Text = title, TextColor3 = C.text, Font = FONT, TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left
+		}, row)
+		local bs = {}
+		local function paint()
+			for i, b in ipairs(bs) do b.BackgroundColor3 = (get() == i) and C.accent or C.off end
+		end
+		for i, nm in ipairs(DIR_NAMES) do
+			local b = new("TextButton", {
+				Position = UDim2.new((i - 1) / 6, 4, 0, 27),
+				Size = UDim2.new(1 / 6, -6, 0, 24),
+				BackgroundColor3 = C.off, Text = nm, TextColor3 = Color3.new(1, 1, 1),
+				Font = FONT, TextSize = 12, AutoButtonColor = false
+			}, row)
+			corner(b, 6)
+			bs[i] = b
+			b.MouseButton1Click:Connect(function() set(i) paint() end)
+		end
+		paint()
+	end
+
+	Label(pMain, "ดึงเข้ามาหาตัวเรา")
+	Toggle(pMain, "ดึงผู้เล่นมาหาตัวเรา", function(v) S.pullP = v refresh() end)
+	dirPicker(pMain, "ทิศที่ดึงผู้เล่นไปอยู่", function() return S.pullDirP end, function(i) S.pullDirP = i end)
+	Toggle(pMain, "ดึง NPC มาหาตัวเรา", function(v) S.pullN = v refresh() end)
+	dirPicker(pMain, "ทิศที่ดึง NPC ไปอยู่", function() return S.pullDirN end, function(i) S.pullDirN = i end)
 	Slider(pMain, "ระยะห่างจากตัวเรา", 3, 40, S.pullDist, function(v) S.pullDist = v end)
 end
 
@@ -5983,6 +6048,52 @@ function Ext.config()
 	-- UI
 	------------------------------------------------------------
 	local pCfg = Page("ตั้งค่า")
+
+	-- V6.6: ปุ่มพิเศษ "ล่องหน UI" -> เปิด UI เล็กใต้ปุ่มโฮม Roblox กดแล้ว HUB/UI/ESP ทั้งหมดล่องหน (ฟังก์ชันยังทำงาน)
+	do
+		local sg, sbtn
+		local function setStealth(v)
+			Ext.stealth = v
+			pcall(function() gui.Enabled = not v end)
+			pcall(function() overlay.Enabled = not v end)
+			for _, o in ipairs(Workspace:GetDescendants()) do
+				if o.Name == "_HubHL" and o:IsA("Highlight") then o.Enabled = not v
+				elseif o.Name == "_HubTag" and o:IsA("BillboardGui") then o.Enabled = not v end
+			end
+			if sbtn then
+				sbtn.Text = v and "👁 แสดง" or "👁 ซ่อน"
+				sbtn.BackgroundColor3 = v and Color3.fromRGB(190, 50, 60) or Color3.fromRGB(35, 145, 105)
+			end
+		end
+		Ext.setStealth = setStealth
+		local function closeStealthUI()
+			if Ext.stealth then setStealth(false) end
+			if sg then sg:Destroy() sg = nil sbtn = nil end
+		end
+		table.insert(Ext.cleanups, closeStealthUI)
+
+		Label(pCfg, "โหมดล่องหน UI (ปุ่มพิเศษ)")
+		local toggleBtn
+		toggleBtn = Button(pCfg, "เปิด/ปิด ปุ่มล่องหน (ใต้ปุ่มโฮม Roblox)", function()
+			if sg then
+				closeStealthUI()
+				return
+			end
+			sg = new("ScreenGui", {
+				Name = "KTHubStealth", ResetOnSpawn = false, IgnoreGuiInset = true,
+				DisplayOrder = 999, ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+			}, guiParent)
+			sbtn = new("TextButton", {
+				Position = UDim2.fromOffset(10, 52), Size = UDim2.fromOffset(64, 26),
+				BackgroundColor3 = Color3.fromRGB(35, 145, 105), Text = "👁 ซ่อน",
+				TextColor3 = Color3.new(1, 1, 1), Font = FONT, TextSize = 12, AutoButtonColor = true
+			}, sg)
+			corner(sbtn, 8)
+			stroke(sbtn, Color3.new(1, 1, 1), 1)
+			sbtn.MouseButton1Click:Connect(function() setStealth(not Ext.stealth) end)
+			notify("เปิดปุ่มล่องหนแล้ว (อยู่ใต้ปุ่มโฮม Roblox)")
+		end)
+	end
 
 	Label(pCfg, "บันทึก / โหลดการตั้งค่า")
 
