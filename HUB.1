@@ -357,18 +357,19 @@ corner(minBtn, 5)
 
 local openBtn = new("TextButton", {
 	Position = UDim2.fromOffset(12, 70),
-	Size = UDim2.fromOffset(96, 46),
+	Size = UDim2.fromOffset(46, 30),
 	BackgroundColor3 = Color3.new(1, 1, 1),
 	AutoButtonColor = false,
 	Text = "ขอโทษ",
 	TextColor3 = Color3.new(0, 0, 0),
 	Font = FONT,
-	TextSize = 22,
+	TextSize = 12,
+	TextScaled = false,
 	Visible = false
 }, gui)
 
-corner(openBtn, 8)
-stroke(openBtn, C.accent, 2)
+corner(openBtn, 6)
+stroke(openBtn, C.accent, 1.5)
 
 if ICON_ID ~= "" then
 	openBtn.Text = ""
@@ -4205,6 +4206,8 @@ setSpiritToggle = Toggle(
 S.pullDist = 8
 S.pullDirP = 1
 S.pullDirN = 1
+S.pullModeP = 1 -- 1 = เป็นกลุ่ม, 2 = จุดเดียวกัน
+S.pullModeN = 1
 do
 	local pullConn
 	-- แกนทิศ: {ทิศหลัก, แกนคอลัมน์, แกนแถว(ถอยออกไป)}
@@ -4216,7 +4219,7 @@ do
 		Vector3.new(0, 1, 0),  -- 5 บน
 		Vector3.new(0, -1, 0), -- 6 ล่าง
 	}
-	local function place(list, dirIdx, root)
+	local function place(list, dirIdx, root, mode)
 		local d = DIRS[dirIdx] or DIRS[1]
 		local colAxis = (dirIdx == 3 or dirIdx == 4) and Vector3.new(0, 0, 1) or Vector3.new(1, 0, 0)
 		local rowAxis = d
@@ -4225,7 +4228,10 @@ do
 			local r = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Torso")
 			if r and r:IsA("BasePart") then
 				local col, row = (i - 1) % 6, math.floor((i - 1) / 6)
-				local off = d * S.pullDist + colAxis * ((col - 2.5) * 3) + rowAxis * (row * 3)
+				local off = d * S.pullDist
+				if mode ~= 2 then -- เป็นกลุ่ม: เรียงเป็นตาราง / จุดเดียว: ซ้อนทุกคนที่จุดเดียวกัน
+					off = off + colAxis * ((col - 2.5) * 3) + rowAxis * (row * 3)
+				end
 				r.CFrame = root.CFrame * CFrame.new(off)
 				r.AssemblyLinearVelocity = Vector3.zero
 				r.AssemblyAngularVelocity = Vector3.zero
@@ -4240,14 +4246,14 @@ do
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p ~= LP and p.Character and alive(p.Character) then list[#list + 1] = p.Character end
 			end
-			place(list, S.pullDirP, root)
+			place(list, S.pullDirP, root, S.pullModeP)
 		end
 		if S.pullN then
 			local list = {}
 			for m in pairs(npcs) do
 				if alive(m) then list[#list + 1] = m end
 			end
-			place(list, S.pullDirN, root)
+			place(list, S.pullDirN, root, S.pullModeN)
 		end
 	end
 	local function refresh()
@@ -4288,11 +4294,39 @@ do
 		paint()
 	end
 
+	local function modePicker(pg, title, get, set)
+		local row = new("Frame", {Size = UDim2.new(1, -6, 0, 58), BackgroundColor3 = C.row}, pg)
+		corner(row, 10)
+		new("TextLabel", {
+			Size = UDim2.new(1, -16, 0, 22), Position = UDim2.fromOffset(10, 3),
+			BackgroundTransparency = 1, Text = title, TextColor3 = C.text, Font = FONT, TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left
+		}, row)
+		local bs = {}
+		local function paint()
+			for i, b in ipairs(bs) do b.BackgroundColor3 = (get() == i) and C.accent or C.off end
+		end
+		for i, nm in ipairs({"เป็นกลุ่ม", "จุดเดียวกัน"}) do
+			local b = new("TextButton", {
+				Position = UDim2.new((i - 1) / 2, 4, 0, 27),
+				Size = UDim2.new(1 / 2, -6, 0, 24),
+				BackgroundColor3 = C.off, Text = nm, TextColor3 = Color3.new(1, 1, 1),
+				Font = FONT, TextSize = 12, AutoButtonColor = false
+			}, row)
+			corner(b, 6)
+			bs[i] = b
+			b.MouseButton1Click:Connect(function() set(i) paint() end)
+		end
+		paint()
+	end
+
 	Label(pMain, "ดึงเข้ามาหาตัวเรา")
 	Toggle(pMain, "ดึงผู้เล่นมาหาตัวเรา", function(v) S.pullP = v refresh() end)
 	dirPicker(pMain, "ทิศที่ดึงผู้เล่นไปอยู่", function() return S.pullDirP end, function(i) S.pullDirP = i end)
+	modePicker(pMain, "รูปแบบที่ดึงผู้เล่น", function() return S.pullModeP end, function(i) S.pullModeP = i end)
 	Toggle(pMain, "ดึง NPC มาหาตัวเรา", function(v) S.pullN = v refresh() end)
 	dirPicker(pMain, "ทิศที่ดึง NPC ไปอยู่", function() return S.pullDirN end, function(i) S.pullDirN = i end)
+	modePicker(pMain, "รูปแบบที่ดึง NPC", function() return S.pullModeN end, function(i) S.pullModeN = i end)
 	Slider(pMain, "ระยะห่างจากตัวเรา", 3, 40, S.pullDist, function(v) S.pullDist = v end)
 end
 
@@ -6060,10 +6094,6 @@ function Ext.config()
 				if o.Name == "_HubHL" and o:IsA("Highlight") then o.Enabled = not v
 				elseif o.Name == "_HubTag" and o:IsA("BillboardGui") then o.Enabled = not v end
 			end
-			if sbtn then
-				sbtn.Text = v and "👁 แสดง" or "👁 ซ่อน"
-				sbtn.BackgroundColor3 = v and Color3.fromRGB(190, 50, 60) or Color3.fromRGB(35, 145, 105)
-			end
 		end
 		Ext.setStealth = setStealth
 		local function closeStealthUI()
@@ -6074,7 +6104,7 @@ function Ext.config()
 
 		Label(pCfg, "โหมดล่องหน UI (ปุ่มพิเศษ)")
 		local toggleBtn
-		toggleBtn = Button(pCfg, "เปิด/ปิด ปุ่มล่องหน (ใต้ปุ่มโฮม Roblox)", function()
+		toggleBtn = Button(pCfg, "เปิด/ปิด ปุ่มล่องหน (ปุ่มโปร่งใส อยู่ใต้ปุ่มโฮม Roblox)", function()
 			if sg then
 				closeStealthUI()
 				return
@@ -6085,13 +6115,11 @@ function Ext.config()
 			}, guiParent)
 			sbtn = new("TextButton", {
 				Position = UDim2.fromOffset(10, 52), Size = UDim2.fromOffset(64, 26),
-				BackgroundColor3 = Color3.fromRGB(35, 145, 105), Text = "👁 ซ่อน",
-				TextColor3 = Color3.new(1, 1, 1), Font = FONT, TextSize = 12, AutoButtonColor = true
-			}, sg)
-			corner(sbtn, 8)
-			stroke(sbtn, Color3.new(1, 1, 1), 1)
+				BackgroundTransparency = 1, BorderSizePixel = 0, Text = "",
+				TextTransparency = 1, Font = FONT, TextSize = 12, AutoButtonColor = false, Active = true
+			}, sg) -- ล่องหนสนิท (ยังกดได้) จำตำแหน่งเอา: ใต้ปุ่มโฮม Roblox
 			sbtn.MouseButton1Click:Connect(function() setStealth(not Ext.stealth) end)
-			notify("เปิดปุ่มล่องหนแล้ว (อยู่ใต้ปุ่มโฮม Roblox)")
+			notify("เปิดปุ่มล่องหนแล้ว (มองไม่เห็นปุ่ม จำตำแหน่งไว้: ใต้ปุ่มโฮม Roblox)")
 		end)
 	end
 
